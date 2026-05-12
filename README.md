@@ -1,36 +1,68 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# DeepChat
 
-## Getting Started
+DeepChat adalah aplikasi chat berbasis Next.js untuk menjalankan percakapan AI, pengaturan model, persona, memori, dan preview kode secara lokal.
 
-First, run the development server:
+## Kebutuhan
+
+- Node.js 20 atau lebih baru
+- pnpm
+
+## Setup Lokal
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
+pnpm install
 pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Aplikasi berjalan di `http://localhost:3000`.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Production
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```bash
+pnpm build
+pnpm start
+```
 
-## Learn More
+Sebelum deploy, pastikan environment variable production sudah diisi di platform deploy. File `.env` dan `.env.*` tidak boleh masuk Git.
 
-To learn more about Next.js, take a look at the following resources:
+## Data Repository
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+Folder `data/` dipakai untuk data runtime seperti chat, memori, profile, pengaturan LLM, API connection, dan upload sementara. Semua isi asli folder ini bersifat lokal dan tidak boleh masuk GitHub.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+Repository hanya menyimpan struktur folder kosong melalui file `.gitkeep`. Data production atau data pribadi harus dibuat ulang oleh aplikasi saat runtime.
 
-## Deploy on Vercel
+Struktur data kosong yang boleh masuk Git:
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+```text
+data/
+data/chat/
+data/llm/
+data/llm/api/
+data/temp/
+data/temp/file/
+data/user/
+data/user/memories/
+```
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## Aturan Commit
+
+- Jangan commit `.env`, API key, token, credential, database lokal, chat history, memory, profile user, upload, cache, build output, atau log.
+- Jangan commit file kerja agent, prompt, conversation dump, session dump, atau file vibe coding.
+- Gunakan `.env.example` jika perlu dokumentasi nama environment variable tanpa nilai rahasia.
+- Jalankan pengecekan ini sebelum push:
+
+```bash
+git status --short
+git ls-files data
+```
+
+Output `git ls-files data` seharusnya hanya berisi file `.gitkeep`.
+
+## Script
+
+```bash
+pnpm dev
+pnpm build
+pnpm start
+pnpm lint
+```

@@ -1,40 +1,68 @@
-# dependencies
-/node_modules
-/.pnp
+node_modules/
+.pnp/
 .pnp.*
 
-# next.js
-/.next/
-/out/
+.next/
+out/
+build/
+dist/
+.turbo/
+coverage/
 
-# production
-/build
+.vercel/
 
-# misc
-.DS_Store
-*.pem
-temp.txt
-temp_extract.txt
 *.tsbuildinfo
 next-env.d.ts
 
-# debug
+.DS_Store
+Thumbs.db
+*.log
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
-# env files
-.env*
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+
+.env
+.env.*
 !.env.example
 
-# vercel
-.vercel
+data/**
+!data/
+!data/**/
+!data/**/.gitkeep
 
-# AI Agent / Vibe Coding
+/uploads/
+/tmp/
+/temp/
+temp.txt
+temp_extract.txt
+
+*.db
+*.sqlite
+*.sqlite3
+*.db-shm
+*.db-wal
+
 AGENTS.md
 CLAUDE.md
-CONDUCTOR/
+GEMINI.md
 conductor/
+CONDUCTOR/
 .cursorrules
+.cursor/
+.claude/
+.codex/
 .gemini/
+.windsurf/
+*.prompt.md
+*.prompts.md
+*.chat.md
+*.conversation.md
+*.session.md
+*.vibe.md
