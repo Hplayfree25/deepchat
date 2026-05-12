@@ -1,0 +1,14 @@
+[
+  {
+    "id": "67584d87-59f4-41c7-bbd3-1371e07bce30",
+    "content": "User likes cats (suka kucing)",
+    "category": "preference",
+    "importance": "low",
+    "createdAt": "2026-05-08T07:25:47.448Z",
+    "updatedAt": "2026-05-08T07:25:47.448Z",
+    "sourceProvider": "OpenAI Compatible",
+    "sourceModel": "deepseek-chat",
+    "sourceConnectionId": "bb564d1f-075b-464b-aa5d-d51ce2cd0972",
+    "sourceChatId": "82prffz"
+  }
+]

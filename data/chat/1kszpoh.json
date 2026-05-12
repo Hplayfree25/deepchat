@@ -1,0 +1,24 @@
+{
+  "id": "1kszpoh",
+  "title": "Kode Python Sederhana Pertama",
+  "createdAt": "2026-05-10T10:56:56.218Z",
+  "messages": [
+    {
+      "id": "1778410627158",
+      "role": "user",
+      "content": "Buatkan 1 file untuk python sederhana",
+      "createdAt": "2026-05-10T10:57:07.158Z",
+      "chatIndex": 0
+    },
+    {
+      "id": "1778410627159",
+      "role": "assistant",
+      "content": "Berikut adalah satu file Python sederhana yang berisi program kalkulator konsol dengan operasi dasar (penjumlahan, pengurangan, perkalian, dan pembagian):\n\n```python\n# calculator.py\n\ndef tambah(a: float, b: float) -> float:\n    \"\"\"Fungsi untuk menambahkan dua bilangan.\"\"\"\n    return a + b\n\ndef kurang(a: float, b: float) -> float:\n    \"\"\"Fungsi untuk mengurangkan dua bilangan.\"\"\"\n    return a - b\n\ndef kali(a: float, b: float) -> float:\n    \"\"\"Fungsi untuk mengalikan dua bilangan.\"\"\"\n    return a * b\n\ndef bagi(a: float, b: float) -> float:\n    \"\"\"Fungsi untuk membagi dua bilangan.\"\"\"\n    if b == 0:\n        raise ValueError(\"Pembagian dengan nol tidak diperbolehkan.\")\n    return a / b\n\ndef kalkulator():\n    \"\"\"Program kalkulator sederhana.\"\"\"\n    print(\"=== Kalkulator Sederhana ===\")\n    print(\"Pilih operasi:\")\n    print(\"1. Penjumlahan (+)\")\n    print(\"2. Pengurangan (-)\")\n    print(\"3. Perkalian (*)\")\n    print(\"4. Pembagian (/)\")\n    print(\"5. Keluar\")\n\n    while True:\n        try:\n            pilihan = input(\"\\nMasukkan pilihan (1/2/3/4/5): \")\n\n            if pilihan == \"5\":\n                print(\"Terima kasih! Program selesai.\")\n                break\n\n            if pilihan not in (\"1\", \"2\", \"3\", \"4\"):\n                print(\"Pilihan tidak valid. Silakan coba lagi.\")\n                continue\n\n            a = float(input(\"Masukkan bilangan pertama: \"))\n            b = float(input(\"Masukkan bilangan kedua: \"))\n\n            if pilihan == \"1\":\n                print(f\"Hasil: {a} + {b} = {tambah(a, b)}\")\n            elif pilihan == \"2\":\n                print(f\"Hasil: {a} - {b} = {kurang(a, b)}\")\n            elif pilihan == \"3\":\n                print(f\"Hasil: {a} * {b} = {kali(a, b)}\")\n            elif pilihan == \"4\":\n                print(f\"Hasil: {a} / {b} = {bagi(a, b)}\")\n\n        except ValueError as e:\n            print(f\"Error: {e}. Masukkan bilangan yang valid.\")\n        except Exception as e:\n            print(f\"Error: {e}\")\n\nif __name__ == \"__main__\":\n    kalkulator()\n```\n\n### Cara menjalankan:\n1. Simpan file dengan nama `calculator.py`.\n2. Buka terminal dan arahkan ke direktori tempat file disimpan.\n3. Jalankan perintah:\n   ```bash\n   python calculator.py\n   ```\n\nProgram ini akan menampilkan menu kalkulator sederhana dan meminta input dari pengguna. Fitur-fitur yang disertakan:\n- Operasi matematika dasar (penjumlahan, pengurangan, perkalian, pembagian).\n- Penanganan error untuk pembagian dengan nol dan input yang tidak valid.\n- Tipe data *type hints* untuk kejelasan kode.",
+      "reasoning": "",
+      "createdAt": "2026-05-10T10:57:07.158Z",
+      "isStreaming": false,
+      "chatIndex": 1,
+      "isError": false
+    }
+  ]
+}

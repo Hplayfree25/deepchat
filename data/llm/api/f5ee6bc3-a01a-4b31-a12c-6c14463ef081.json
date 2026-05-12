@@ -1,0 +1,10 @@
+{
+  "id": "f5ee6bc3-a01a-4b31-a12c-6c14463ef081",
+  "provider": "OpenAI Compatible",
+  "name": "d4API",
+  "apiKey": "redbull",
+  "baseUrl": "https://ds2api-chi-six.vercel.app/v1",
+  "projectId": "",
+  "location": "us-central1",
+  "model": "deepseek-chat"
+}

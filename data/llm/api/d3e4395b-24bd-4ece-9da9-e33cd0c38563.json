@@ -1,0 +1,10 @@
+{
+  "id": "d3e4395b-24bd-4ece-9da9-e33cd0c38563",
+  "provider": "Mistral",
+  "name": "Mistral",
+  "apiKey": "8J2drANFsOyShZRKZTAc6GPaadfCowg1",
+  "baseUrl": "https://api.mistral.ai",
+  "projectId": "",
+  "location": "us-central1",
+  "model": "mistral-medium-3-5"
+}

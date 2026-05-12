@@ -1,0 +1,24 @@
+{
+  "id": "x3nzxa8",
+  "title": "Contoh Kode Ruby Sederhana",
+  "createdAt": "2026-05-10T11:56:10.138Z",
+  "messages": [
+    {
+      "id": "1778414170491",
+      "role": "user",
+      "content": "Buatkan contoh program di ruby",
+      "createdAt": "2026-05-10T11:56:10.491Z",
+      "chatIndex": 0
+    },
+    {
+      "id": "1778414170492",
+      "role": "assistant",
+      "content": "Berikut adalah contoh program sederhana dalam Ruby yang mirip dengan kalkulator konsol sebelumnya, tetapi dengan beberapa fitur tambahan seperti perhitungan pangkat dan akar kuadrat:\n\n```ruby\n# calculator.rb\n\ndef tambah(a, b)\n  a + b\nend\n\ndef kurang(a, b)\n  a - b\nend\n\ndef kali(a, b)\n  a * b\nend\n\ndef bagi(a, b)\n  if b == 0\n    raise \"Pembagian dengan nol tidak diperbolehkan.\"\n  else\n    a.to_f / b\n  end\nend\n\ndef pangkat(a, b)\n  a ** b\nend\n\ndef akar_kuadrat(a)\n  if a < 0\n    raise \"Bilangan negatif tidak memiliki akar kuadrat real.\"\n  else\n    Math.sqrt(a)\n  end\nend\n\ndef kalkulator\n  puts \"=== Kalkulator Sederhana (Ruby) ===\"\n  puts \"Pilih operasi:\"\n  puts \"1. Penjumlahan (+)\"\n  puts \"2. Pengurangan (-)\"\n  puts \"3. Perkalian (*)\"\n  puts \"4. Pembagian (/)\"\n  puts \"5. Pangkat (^)\"\n  puts \"6. Akar Kuadrat (√)\"\n  puts \"7. Keluar\"\n\n  loop do\n    print \"\\nPilihan (1-7): \"\n    pilihan = gets.chomp.to_i\n\n    break if pilihan == 7\n\n    if pilihan.between?(1, 6)\n      begin\n        if pilihan == 6\n          print \"Masukkan bilangan: \"\n          a = gets.chomp.to_f\n          hasil = akar_kuadrat(a)\n        else\n          print \"Masukkan bilangan pertama: \"\n          a = gets.chomp.to_f\n          print \"Masukkan bilangan kedua: \"\n          b = gets.chomp.to_f\n\n          hasil = case pilihan\n                  when 1 then tambah(a, b)\n                  when 2 then kurang(a, b)\n                  when 3 then kali(a, b)\n                  when 4 then bagi(a, b)\n                  when 5 then pangkat(a, b)\n                  end\n        end\n\n        puts \"Hasil: #{hasil.round(4)}\"\n      rescue => e\n        puts \"Error: #{e.message}\"\n      end\n    else\n      puts \"Pilihan tidak valid. Silakan coba lagi.\"\n    end\n  end\n\n  puts \"\\nTerima kasih telah menggunakan kalkulator Ruby!\"\nend\n\nkalkulator\n```\n\n### Cara Menjalankan Program:\n1. Simpan kode di atas dalam file bernama `calculator.rb`.\n2. Buka terminal atau command prompt.\n3. Navigasi ke direktori tempat file disimpan.\n4. Jalankan perintah: `ruby calculator.rb`.\n\n### Fitur Tambahan:\n- **Pangkat (^)**: Menghitung hasil pemangkatan (misal, 2^3 = 8).\n- **Akar Kuadrat (√)**: Menghitung akar kuadrat dari sebuah bilangan.\n- **Penanganan Error**: Menangani kesalahan seperti pembagian dengan nol atau akar kuadrat dari bilangan negatif.\n- **Pembulatan Hasil**: Hasil ditampilkan dengan 4 angka di belakang koma untuk kemudahan pembacaan.\n\nProgram ini juga menggunakan `loop do` untuk menjalankan kalkulator secara berulang hingga pengguna memilih untuk keluar.",
+      "reasoning": "",
+      "createdAt": "2026-05-10T11:56:10.491Z",
+      "isStreaming": false,
+      "chatIndex": 1,
+      "isError": false
+    }
+  ]
+}

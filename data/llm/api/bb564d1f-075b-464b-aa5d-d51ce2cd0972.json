@@ -1,0 +1,10 @@
+{
+  "id": "bb564d1f-075b-464b-aa5d-d51ce2cd0972",
+  "provider": "OpenAI Compatible",
+  "name": "CA",
+  "apiKey": "sk-BT0CLVX8hW8uRinay5hzBIFAgJVAXADELkpOAEWHGSJfxgdO",
+  "baseUrl": "https://ioll.pp.ua/v1",
+  "projectId": "",
+  "location": "us-central1",
+  "model": "deepseek-reasoner"
+}

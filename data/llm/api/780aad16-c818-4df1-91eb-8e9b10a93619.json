@@ -1,0 +1,10 @@
+{
+  "id": "780aad16-c818-4df1-91eb-8e9b10a93619",
+  "provider": "Gemini",
+  "name": "Geminic",
+  "apiKey": "AIzaSyDFBD-IwpQhpp3QauKMe1JVWgro7BgpPu0",
+  "baseUrl": "",
+  "projectId": "",
+  "location": "us-central1",
+  "model": "gemini-3.1-flash-lite-preview"
+}

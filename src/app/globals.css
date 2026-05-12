@@ -1,0 +1,451 @@
+@import "tailwindcss";
+@import "./scrollbar.css";
+
+:root {
+  --background: #ffffff;
+  --foreground: #171717;
+  --deepchat-accent: #4f46e5;
+  --deepchat-accent-hover: #4338ca;
+  --deepchat-accent-soft: #eef2ff;
+  --deepchat-accent-border: #c7d2fe;
+  --deepchat-accent-text: #4f46e5;
+}
+
+html.dark {
+  --background: #0a0a0a;
+  --foreground: #ededed;
+}
+
+html[data-appearance="light"] {
+  color-scheme: light;
+  --background: #ffffff;
+  --foreground: #171717;
+}
+
+html[data-appearance="dark"] {
+  color-scheme: dark;
+  --background: #0a0a0a;
+  --foreground: #ededed;
+}
+
+html[data-contrast="increased"] {
+  --foreground: #020617;
+}
+
+html.dark[data-contrast="increased"],
+html[data-appearance="dark"][data-contrast="increased"] {
+  --foreground: #ffffff;
+}
+
+html[data-accent-color="blue"] {
+  --deepchat-accent: #2563eb;
+  --deepchat-accent-hover: #1d4ed8;
+  --deepchat-accent-soft: #eff6ff;
+  --deepchat-accent-border: #bfdbfe;
+  --deepchat-accent-text: #2563eb;
+}
+
+html[data-accent-color="green"] {
+  --deepchat-accent: #16a34a;
+  --deepchat-accent-hover: #15803d;
+  --deepchat-accent-soft: #f0fdf4;
+  --deepchat-accent-border: #bbf7d0;
+  --deepchat-accent-text: #16a34a;
+}
+
+html[data-accent-color="yellow"] {
+  --deepchat-accent: #ca8a04;
+  --deepchat-accent-hover: #a16207;
+  --deepchat-accent-soft: #fefce8;
+  --deepchat-accent-border: #fde68a;
+  --deepchat-accent-text: #a16207;
+}
+
+html[data-accent-color="pink"] {
+  --deepchat-accent: #db2777;
+  --deepchat-accent-hover: #be185d;
+  --deepchat-accent-soft: #fdf2f8;
+  --deepchat-accent-border: #fbcfe8;
+  --deepchat-accent-text: #db2777;
+}
+
+html[data-accent-color="orange"] {
+  --deepchat-accent: #ea580c;
+  --deepchat-accent-hover: #c2410c;
+  --deepchat-accent-soft: #fff7ed;
+  --deepchat-accent-border: #fed7aa;
+  --deepchat-accent-text: #ea580c;
+}
+
+html[data-accent-color="purple"] {
+  --deepchat-accent: #9333ea;
+  --deepchat-accent-hover: #7e22ce;
+  --deepchat-accent-soft: #faf5ff;
+  --deepchat-accent-border: #e9d5ff;
+  --deepchat-accent-text: #9333ea;
+}
+
+html[data-accent-color="black"] {
+  --deepchat-accent: #020617;
+  --deepchat-accent-hover: #111827;
+  --deepchat-accent-soft: #f8fafc;
+  --deepchat-accent-border: #cbd5e1;
+  --deepchat-accent-text: #020617;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: Arial, Helvetica, sans-serif;
+  --font-mono: "Courier New", Consolas, monospace;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #0a0a0a;
+    --foreground: #ededed;
+  }
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: Arial, Helvetica, sans-serif;
+  overflow: hidden;
+}
+
+.deepchat-composer-dock {
+  background: linear-gradient(to top, #ffffff 0%, #ffffff 58%, rgb(255 255 255 / 0.82) 76%, rgb(255 255 255 / 0) 100%);
+}
+
+html.dark .deepchat-composer-dock,
+html[data-appearance="dark"] .deepchat-composer-dock {
+  background: linear-gradient(to top, #0f172a 0%, #0f172a 58%, rgb(15 23 42 / 0.92) 76%, rgb(15 23 42 / 0) 100%) !important;
+}
+
+html[data-accent-color]:not([data-accent-color="default"]) .bg-indigo-600 {
+  background-color: var(--deepchat-accent) !important;
+}
+
+html[data-accent-color]:not([data-accent-color="default"]) .hover\:bg-indigo-700:hover,
+html[data-accent-color]:not([data-accent-color="default"]) .hover\:bg-indigo-600:hover {
+  background-color: var(--deepchat-accent-hover) !important;
+}
+
+html[data-accent-color]:not([data-accent-color="default"]) .text-indigo-600,
+html[data-accent-color]:not([data-accent-color="default"]) .text-indigo-500 {
+  color: var(--deepchat-accent-text) !important;
+}
+
+html[data-accent-color]:not([data-accent-color="default"]) .bg-indigo-50 {
+  background-color: var(--deepchat-accent-soft) !important;
+}
+
+html[data-accent-color]:not([data-accent-color="default"]) .border-indigo-100,
+html[data-accent-color]:not([data-accent-color="default"]) .border-indigo-200 {
+  border-color: var(--deepchat-accent-border) !important;
+}
+
+html[data-accent-color]:not([data-accent-color="default"]) .accent-indigo-600 {
+  accent-color: var(--deepchat-accent) !important;
+}
+
+html[data-contrast="increased"] .border-slate-100,
+html[data-contrast="increased"] .border-slate-200 {
+  border-color: #64748b !important;
+}
+
+html[data-contrast="increased"] .text-slate-400,
+html[data-contrast="increased"] .text-slate-500 {
+  color: #475569 !important;
+}
+
+html.dark .bg-white,
+html[data-appearance="dark"] .bg-white {
+  background-color: #0b1220 !important;
+}
+
+html.dark .bg-slate-50,
+html[data-appearance="dark"] .bg-slate-50 {
+  background-color: #111827 !important;
+}
+
+html.dark .bg-slate-100,
+html[data-appearance="dark"] .bg-slate-100 {
+  background-color: #1e293b !important;
+}
+
+html.dark .bg-slate-200,
+html[data-appearance="dark"] .bg-slate-200 {
+  background-color: #334155 !important;
+}
+
+html.dark .text-slate-950,
+html.dark .text-slate-900,
+html.dark .text-slate-800,
+html.dark .text-slate-700,
+html[data-appearance="dark"] .text-slate-950,
+html[data-appearance="dark"] .text-slate-900,
+html[data-appearance="dark"] .text-slate-800,
+html[data-appearance="dark"] .text-slate-700 {
+  color: #f8fafc !important;
+}
+
+html.dark .text-slate-600,
+html.dark .text-slate-500,
+html.dark .text-slate-400,
+html[data-appearance="dark"] .text-slate-600,
+html[data-appearance="dark"] .text-slate-500,
+html[data-appearance="dark"] .text-slate-400 {
+  color: #a7b4c7 !important;
+}
+
+html.dark .text-slate-300,
+html[data-appearance="dark"] .text-slate-300 {
+  color: #cbd5e1 !important;
+}
+
+html.dark .text-white,
+html[data-appearance="dark"] .text-white {
+  color: #ffffff !important;
+}
+
+html.dark .border-slate-50,
+html.dark .border-slate-100,
+html.dark .border-slate-200,
+html[data-appearance="dark"] .border-slate-50,
+html[data-appearance="dark"] .border-slate-100,
+html[data-appearance="dark"] .border-slate-200 {
+  border-color: #263449 !important;
+}
+
+html.dark input,
+html.dark textarea,
+html.dark select,
+html[data-appearance="dark"] input,
+html[data-appearance="dark"] textarea,
+html[data-appearance="dark"] select {
+  color: #f8fafc;
+  background-color: #0b1220;
+}
+
+html.dark input::placeholder,
+html.dark textarea::placeholder,
+html[data-appearance="dark"] input::placeholder,
+html[data-appearance="dark"] textarea::placeholder {
+  color: #7f8da3;
+}
+
+html.dark .from-white,
+html[data-appearance="dark"] .from-white {
+  --tw-gradient-from: #0f172a var(--tw-gradient-from-position) !important;
+  --tw-gradient-to: rgb(15 23 42 / 0) var(--tw-gradient-to-position) !important;
+  --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to) !important;
+}
+
+html.dark .via-white,
+html[data-appearance="dark"] .via-white {
+  --tw-gradient-to: rgb(15 23 42 / 0) var(--tw-gradient-to-position) !important;
+  --tw-gradient-stops: var(--tw-gradient-from), #0f172a var(--tw-gradient-via-position), var(--tw-gradient-to) !important;
+}
+
+html.dark .to-transparent,
+html[data-appearance="dark"] .to-transparent {
+  --tw-gradient-to: rgb(15 23 42 / 0) var(--tw-gradient-to-position) !important;
+}
+
+html.dark .shadow-sm,
+html.dark .shadow-md,
+html.dark .shadow-lg,
+html.dark .shadow-xl,
+html.dark .shadow-2xl,
+html.dark .shadow-inner,
+html[data-appearance="dark"] .shadow-sm,
+html[data-appearance="dark"] .shadow-md,
+html[data-appearance="dark"] .shadow-lg,
+html[data-appearance="dark"] .shadow-xl,
+html[data-appearance="dark"] .shadow-2xl,
+html[data-appearance="dark"] .shadow-inner {
+  --tw-shadow-color: rgb(0 0 0 / 0.45) !important;
+}
+
+html.dark .shadow-slate-200\/50,
+html.dark .shadow-slate-300\/30,
+html.dark .shadow-slate-100\/50,
+html.dark .shadow-indigo-200,
+html[data-appearance="dark"] .shadow-slate-200\/50,
+html[data-appearance="dark"] .shadow-slate-300\/30,
+html[data-appearance="dark"] .shadow-slate-100\/50,
+html[data-appearance="dark"] .shadow-indigo-200 {
+  --tw-shadow-color: rgb(0 0 0 / 0.42) !important;
+}
+
+html.dark .ring-white\/20,
+html.dark .ring-white\/60,
+html[data-appearance="dark"] .ring-white\/20,
+html[data-appearance="dark"] .ring-white\/60 {
+  --tw-ring-color: rgb(148 163 184 / 0.26) !important;
+}
+
+html.dark .border-white\/25,
+html[data-appearance="dark"] .border-white\/25 {
+  border-color: rgb(148 163 184 / 0.25) !important;
+}
+
+html.dark .hover\:bg-slate-50:hover,
+html.dark .hover\:bg-slate-100:hover,
+html.dark .hover\:bg-slate-200\/50:hover,
+html[data-appearance="dark"] .hover\:bg-slate-50:hover,
+html[data-appearance="dark"] .hover\:bg-slate-100:hover,
+html[data-appearance="dark"] .hover\:bg-slate-200\/50:hover {
+  background-color: #1e293b !important;
+}
+
+html.dark .bg-white\/80,
+html[data-appearance="dark"] .bg-white\/80 {
+  background-color: rgb(15 23 42 / 0.84) !important;
+}
+
+html.dark .bg-white\/10,
+html[data-appearance="dark"] .bg-white\/10 {
+  background-color: rgb(255 255 255 / 0.08) !important;
+}
+
+html.dark .hover\:bg-white\/20:hover,
+html[data-appearance="dark"] .hover\:bg-white\/20:hover {
+  background-color: rgb(255 255 255 / 0.14) !important;
+}
+
+html.dark .bg-slate-50\/30,
+html[data-appearance="dark"] .bg-slate-50\/30 {
+  background-color: rgb(30 41 59 / 0.55) !important;
+}
+
+html.dark .bg-slate-100\/80,
+html[data-appearance="dark"] .bg-slate-100\/80 {
+  background-color: rgb(30 41 59 / 0.84) !important;
+}
+
+html.dark .bg-slate-200\/30,
+html[data-appearance="dark"] .bg-slate-200\/30 {
+  background-color: rgb(51 65 85 / 0.35) !important;
+}
+
+html.dark .hover\:bg-slate-200\/50:hover,
+html[data-appearance="dark"] .hover\:bg-slate-200\/50:hover {
+  background-color: rgb(71 85 105 / 0.48) !important;
+}
+
+html.dark .bg-red-50,
+html[data-appearance="dark"] .bg-red-50 {
+  background-color: rgb(127 29 29 / 0.18) !important;
+}
+
+html.dark .border-red-100,
+html[data-appearance="dark"] .border-red-100 {
+  border-color: rgb(248 113 113 / 0.25) !important;
+}
+
+html.dark .text-red-800,
+html[data-appearance="dark"] .text-red-800 {
+  color: #fecaca !important;
+}
+
+html.dark .hover\:bg-red-50:hover,
+html[data-appearance="dark"] .hover\:bg-red-50:hover {
+  background-color: rgb(127 29 29 / 0.22) !important;
+}
+
+html.dark .hover\:bg-indigo-50:hover,
+html[data-appearance="dark"] .hover\:bg-indigo-50:hover {
+  background-color: rgb(79 70 229 / 0.16) !important;
+}
+
+html.dark .hover\:border-slate-300:hover,
+html.dark .hover\:border-indigo-200:hover,
+html.dark .hover\:border-indigo-300:hover,
+html[data-appearance="dark"] .hover\:border-slate-300:hover,
+html[data-appearance="dark"] .hover\:border-indigo-200:hover,
+html[data-appearance="dark"] .hover\:border-indigo-300:hover {
+  border-color: rgb(129 140 248 / 0.55) !important;
+}
+
+html.dark .group:hover .group-hover\:bg-white,
+html[data-appearance="dark"] .group:hover .group-hover\:bg-white {
+  background-color: #243047 !important;
+}
+
+html.dark .group:hover .group-hover\:bg-slate-950,
+html[data-appearance="dark"] .group:hover .group-hover\:bg-slate-950 {
+  background-color: #312e81 !important;
+}
+
+html.dark .group:hover .group-hover\:text-slate-700,
+html.dark .group:hover .group-hover\:text-indigo-700,
+html[data-appearance="dark"] .group:hover .group-hover\:text-slate-700,
+html[data-appearance="dark"] .group:hover .group-hover\:text-indigo-700 {
+  color: #c7d2fe !important;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
+
+img,
+svg,
+video,
+canvas {
+  max-width: 100%;
+}
+
+.katex-display {
+  overflow-x: auto;
+  overflow-y: hidden;
+  max-width: 100%;
+  padding-bottom: 0.5rem;
+}
+.katex-display > .katex {
+  white-space: normal;
+}
+
+.custom-scrollbar::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background-color: #cbd5e1;
+  border-radius: 10px;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background-color: #94a3b8;
+}
+
+html.dark .custom-scrollbar::-webkit-scrollbar-thumb,
+html[data-appearance="dark"] .custom-scrollbar::-webkit-scrollbar-thumb {
+  background-color: #334155;
+}
+
+html.dark .custom-scrollbar::-webkit-scrollbar-thumb:hover,
+html[data-appearance="dark"] .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background-color: #475569;
+}
+
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}

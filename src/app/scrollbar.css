@@ -1,0 +1,396 @@
+.modern-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: #cbd5e1 transparent;
+}
+
+.modern-scrollbar::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+.modern-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+  border-radius: 999px;
+}
+
+.modern-scrollbar::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, #e2e8f0, #cbd5e1);
+  border: 3px solid transparent;
+  border-radius: 999px;
+  background-clip: content-box;
+}
+
+.modern-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, #cbd5e1, #94a3b8);
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+
+.modern-scrollbar::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+html.dark .modern-scrollbar,
+html[data-appearance="dark"] .modern-scrollbar {
+  scrollbar-color: #475569 transparent;
+}
+
+html.dark .modern-scrollbar::-webkit-scrollbar-track,
+html[data-appearance="dark"] .modern-scrollbar::-webkit-scrollbar-track {
+  background: #0b1220;
+}
+
+html.dark .modern-scrollbar::-webkit-scrollbar-thumb,
+html[data-appearance="dark"] .modern-scrollbar::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, #64748b, #334155);
+  border: 3px solid #0b1220;
+  background-clip: padding-box;
+}
+
+html.dark .modern-scrollbar::-webkit-scrollbar-thumb:hover,
+html[data-appearance="dark"] .modern-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, #94a3b8, #475569);
+  border: 3px solid #0b1220;
+  background-clip: padding-box;
+}
+
+html.dark .modern-scrollbar::-webkit-scrollbar-corner,
+html[data-appearance="dark"] .modern-scrollbar::-webkit-scrollbar-corner {
+  background: #0b1220;
+}
+
+.code-preview-code,
+.code-preview-code pre,
+.code-preview-code code,
+.code-preview-code span,
+.code-preview-code textarea {
+  font-family: "Cascadia Code", "Cascadia Mono", Consolas, "Courier New", monospace;
+  font-size: 14px;
+  font-variant-ligatures: none;
+  font-feature-settings: "liga" 0, "calt" 0;
+  letter-spacing: 0;
+  line-height: 24px;
+  tab-size: 2;
+}
+
+.code-preview-code pre,
+.code-preview-code code,
+.code-preview-code textarea {
+  white-space: pre;
+  word-break: normal;
+  overflow-wrap: normal;
+}
+
+.code-preview-code textarea {
+  border: 0;
+  box-sizing: border-box;
+  margin: 0;
+}
+
+html.dark .code-preview-code,
+html.dark .code-preview-code pre,
+html.dark .code-preview-code code,
+html[data-appearance="dark"] .code-preview-code,
+html[data-appearance="dark"] .code-preview-code pre,
+html[data-appearance="dark"] .code-preview-code code {
+  background-color: #0b1220 !important;
+}
+
+html.dark .code-preview-code,
+html.dark .code-preview-code pre,
+html.dark .code-preview-code code,
+html[data-appearance="dark"] .code-preview-code,
+html[data-appearance="dark"] .code-preview-code pre,
+html[data-appearance="dark"] .code-preview-code code {
+  color: #dbeafe;
+}
+
+html.dark .code-preview-code textarea,
+html[data-appearance="dark"] .code-preview-code textarea {
+  background-color: #0b1220 !important;
+  color: #dbeafe !important;
+  caret-color: #a5b4fc;
+}
+
+html.dark .code-preview-code ::selection,
+html[data-appearance="dark"] .code-preview-code ::selection {
+  background: rgb(99 102 241 / 0.32);
+}
+
+.deepchat-code-spinner {
+  width: 16px;
+  height: 16px;
+  display: inline-block;
+  border: 2px solid #cbd5e1;
+  border-top-color: #334155;
+  border-radius: 999px;
+  animation: deepchat-code-spin 700ms linear infinite;
+  animation-fill-mode: both;
+  contain: layout paint;
+  transform-origin: center;
+  backface-visibility: hidden;
+  will-change: transform;
+}
+
+@keyframes deepchat-code-spin {
+  from {
+    transform: rotate(0deg);
+  }
+
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.deepchat-download-modal-backdrop {
+  animation: deepchat-modal-backdrop-in 180ms ease-out both;
+}
+
+.deepchat-download-modal-panel {
+  animation: deepchat-modal-panel-in 220ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.deepchat-fullscreen-shell {
+  isolation: isolate;
+  transform: translateZ(0);
+  animation: deepchat-fullscreen-shell-in 360ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  will-change: opacity, transform;
+}
+
+.deepchat-fullscreen-shell[data-state="closing"] {
+  pointer-events: none;
+  animation: deepchat-fullscreen-shell-out 320ms cubic-bezier(0.7, 0, 0.84, 0) both;
+}
+
+.deepchat-fullscreen-toolbar {
+  animation: deepchat-fullscreen-toolbar-in 420ms cubic-bezier(0.16, 1, 0.3, 1) 40ms both;
+  will-change: opacity, transform;
+}
+
+.deepchat-fullscreen-shell[data-state="closing"] .deepchat-fullscreen-toolbar {
+  animation: deepchat-fullscreen-toolbar-out 220ms cubic-bezier(0.7, 0, 0.84, 0) both;
+}
+
+.deepchat-fullscreen-stage {
+  perspective: 1200px;
+}
+
+.deepchat-fullscreen-workspace {
+  transform-origin: 50% 48%;
+  animation: deepchat-fullscreen-workspace-in 460ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  will-change: opacity, transform, clip-path;
+}
+
+.deepchat-fullscreen-shell[data-state="closing"] .deepchat-fullscreen-workspace {
+  animation: deepchat-fullscreen-workspace-out 300ms cubic-bezier(0.7, 0, 0.84, 0) both;
+}
+
+.deepchat-fullscreen-editor-pane {
+  transform-origin: left center;
+  animation: deepchat-fullscreen-editor-in 520ms cubic-bezier(0.16, 1, 0.3, 1) 70ms both;
+  will-change: opacity, transform;
+}
+
+.deepchat-fullscreen-viewer-pane {
+  transform-origin: center;
+  animation: deepchat-fullscreen-viewer-in 500ms cubic-bezier(0.16, 1, 0.3, 1) 90ms both;
+  will-change: opacity, transform;
+}
+
+.deepchat-fullscreen-console {
+  animation: deepchat-fullscreen-console-in 360ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  transform-origin: bottom center;
+}
+
+.deepchat-fullscreen-shell[data-state="closing"] .deepchat-fullscreen-editor-pane,
+.deepchat-fullscreen-shell[data-state="closing"] .deepchat-fullscreen-viewer-pane,
+.deepchat-fullscreen-shell[data-state="closing"] .deepchat-fullscreen-console {
+  animation: deepchat-fullscreen-content-out 240ms cubic-bezier(0.7, 0, 0.84, 0) both;
+}
+
+@keyframes deepchat-fullscreen-shell-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.985);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes deepchat-fullscreen-shell-out {
+  from {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+
+  to {
+    opacity: 0;
+    transform: translateY(12px) scale(0.985);
+  }
+}
+
+@keyframes deepchat-fullscreen-toolbar-in {
+  from {
+    opacity: 0;
+    transform: translateY(-14px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes deepchat-fullscreen-toolbar-out {
+  from {
+    opacity: 1;
+    transform: translateY(0);
+  }
+
+  to {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+}
+
+@keyframes deepchat-fullscreen-workspace-in {
+  0% {
+    opacity: 0;
+    clip-path: inset(10px 18px 24px 18px round 30px);
+    transform: translateY(22px) scale(0.96) rotateX(2deg);
+  }
+
+  58% {
+    opacity: 1;
+    clip-path: inset(0 0 0 0 round 24px);
+    transform: translateY(-2px) scale(1.003) rotateX(0deg);
+  }
+
+  100% {
+    opacity: 1;
+    clip-path: inset(0 0 0 0 round 24px);
+    transform: translateY(0) scale(1) rotateX(0deg);
+  }
+}
+
+@keyframes deepchat-fullscreen-workspace-out {
+  from {
+    opacity: 1;
+    clip-path: inset(0 0 0 0 round 24px);
+    transform: translateY(0) scale(1);
+  }
+
+  to {
+    opacity: 0;
+    clip-path: inset(14px 20px 28px 20px round 30px);
+    transform: translateY(18px) scale(0.97);
+  }
+}
+
+@keyframes deepchat-fullscreen-editor-in {
+  from {
+    opacity: 0;
+    transform: translateX(-28px) scaleX(0.96);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateX(0) scaleX(1);
+  }
+}
+
+@keyframes deepchat-fullscreen-viewer-in {
+  from {
+    opacity: 0;
+    transform: translateX(24px) scale(0.985);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateX(0) scale(1);
+  }
+}
+
+@keyframes deepchat-fullscreen-console-in {
+  from {
+    opacity: 0;
+    transform: translateY(18px) scale(0.985);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes deepchat-fullscreen-content-out {
+  from {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+
+  to {
+    opacity: 0;
+    transform: translateY(14px) scale(0.985);
+  }
+}
+
+@media (max-width: 760px) {
+  .deepchat-fullscreen-workspace {
+    flex-direction: column;
+  }
+
+  .deepchat-fullscreen-editor-pane[data-open="true"] {
+    width: 100% !important;
+    height: 42%;
+    min-height: 220px;
+    transform-origin: top center;
+  }
+
+  .deepchat-fullscreen-editor-pane[data-open="false"] {
+    width: 0 !important;
+    height: 0;
+    min-height: 0;
+  }
+
+  .deepchat-fullscreen-viewer-pane {
+    min-height: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .deepchat-fullscreen-shell,
+  .deepchat-fullscreen-toolbar,
+  .deepchat-fullscreen-workspace,
+  .deepchat-fullscreen-editor-pane,
+  .deepchat-fullscreen-viewer-pane,
+  .deepchat-fullscreen-console {
+    animation-duration: 1ms !important;
+    transition-duration: 1ms !important;
+  }
+}
+
+@keyframes deepchat-modal-backdrop-in {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes deepchat-modal-panel-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.96);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
