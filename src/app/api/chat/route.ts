@@ -19,6 +19,7 @@ import {
   readLLMSettings,
   stripOpenAICompatibleReasoning
 } from '@/lib/llm-settings';
+import { logAiExchange, streamWithAiLog } from '@/lib/ai-logs';
 import {
   buildIntegrationSystemPrompt,
   collectMCPRuntimeContext,
@@ -586,6 +587,13 @@ export async function POST(req: Request) {
     const llmSettings = await readLLMSettings();
     const isStream = llmSettings.streamingResponse;
     const cleanBase = getCleanBaseUrl(p, conn.baseUrl);
+    const selectedModel = modelId || conn.model;
+    const aiLogPayload = {
+      route: 'chat',
+      provider: conn.provider,
+      model: selectedModel,
+      input: latestUserMessage
+    };
 
     let url = '';
     const headers: Record<string, string> = { 'content-type': 'application/json' };
@@ -604,7 +612,7 @@ export async function POST(req: Request) {
       }));
 
       body = {
-        model: modelId || conn.model,
+        model: selectedModel,
         max_tokens: 4096,
         messages: anthropicMessages,
         stream: isStream
@@ -618,7 +626,7 @@ export async function POST(req: Request) {
       }
       const ai = new GoogleGenAI(aiOptions);
 
-      const chosenModel = modelId || conn.model;
+      const chosenModel = selectedModel;
       const mPath = getGeminiModelPath(chosenModel);
       const geminiMessages = await buildGeminiContents(messages, ai);
       const systemMessage = messages.find(m => m.role === 'system')?.content;
@@ -656,6 +664,7 @@ export async function POST(req: Request) {
                   error: 'Gemini returned an empty response. The model may be unavailable, blocked by safety settings, or not compatible with text chat.'
                 })));
               }
+              logAiExchange({ ...aiLogPayload, output: accumulatedText });
               controller.enqueue(encoder.encode('data: [DONE]\n\n'));
               controller.close();
             } catch (e: unknown) {
@@ -675,6 +684,7 @@ export async function POST(req: Request) {
           contents: geminiMessages,
           config
         });
+        logAiExchange({ ...aiLogPayload, output: response.text || '' });
         return singleSseResponse(p, {
           text: response.text || '',
           candidates: [{ content: { parts: [{ text: response.text }] } }]
@@ -682,7 +692,7 @@ export async function POST(req: Request) {
       }
     } else if (p === 'vertexai') {
       const endpoint = isStream ? 'streamGenerateContent?alt=sse' : 'generateContent';
-      const chosenModel = modelId || conn.model;
+      const chosenModel = selectedModel;
       url = getVertexGenerateContentUrl(conn.projectId, conn.location, chosenModel, endpoint);
       headers['Authorization'] = `Bearer ${conn.apiKey}`;
 
@@ -724,6 +734,7 @@ export async function POST(req: Request) {
           if (!isStream) {
             const data = await res.json();
             const message = getOpenAiCompatibleMessage(data);
+            logAiExchange({ ...aiLogPayload, output: [message.reasoning_content, message.content].filter(Boolean).join('\n') });
             return singleSseResponse(p, {
               choices: [{
                 delta: {
@@ -733,7 +744,7 @@ export async function POST(req: Request) {
               }]
             });
           }
-          return new Response(res.body, {
+          return new Response(streamWithAiLog(res.body, aiLogPayload), {
             headers: streamHeaders(p)
           });
         }
@@ -746,18 +757,23 @@ export async function POST(req: Request) {
     if (!isStream) {
       const data = await res.json();
       if (p === 'anthropic') {
+        const output = getAnthropicMessageText(data);
+        logAiExchange({ ...aiLogPayload, output });
         return singleSseResponse(p, {
           type: 'content_block_delta',
-          delta: { text: getAnthropicMessageText(data) }
+          delta: { text: output }
         });
       }
       if (p === 'vertexai') {
+        const output = getVertexMessageText(data);
+        logAiExchange({ ...aiLogPayload, output });
         return singleSseResponse(p, {
-          text: getVertexMessageText(data),
+          text: output,
           candidates: data?.candidates
         });
       }
       const message = getOpenAiCompatibleMessage(data);
+      logAiExchange({ ...aiLogPayload, output: [message.reasoning_content, message.content].filter(Boolean).join('\n') });
       return singleSseResponse(p, {
         choices: [{
           delta: {
@@ -768,7 +784,7 @@ export async function POST(req: Request) {
       });
     }
 
-    return new Response(res.body, {
+    return new Response(streamWithAiLog(res.body, aiLogPayload), {
       headers: streamHeaders(p)
     });
 
