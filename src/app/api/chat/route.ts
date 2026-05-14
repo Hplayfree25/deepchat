@@ -22,10 +22,14 @@ import {
 import { logAiExchange, streamWithAiLog } from '@/lib/ai-logs';
 import {
   buildIntegrationSystemPrompt,
-  collectMCPRuntimeContext,
+  collectMCPRuntimeContextWithUsage,
+  collectToolRuntimeContext,
+  getMCPRuntimeCandidateServers,
   normalizeChatMCPServers,
-  normalizeChatTools
+  normalizeChatTools,
+  type MCPRuntimeUsageItem
 } from '@/lib/mcp-runtime';
+import { buildClarificationInstruction, parseAgentClarification } from '@/lib/agent-clarification';
 import fs from 'fs/promises';
 import path from 'path';
 
@@ -171,10 +175,63 @@ const streamHeaders = (provider: string) => ({
 
 const sse = (data: unknown) => `data: ${JSON.stringify(data)}\n\n`;
 
-const singleSseResponse = (provider: string, data: unknown) => {
+const prependSseEvents = (body: ReadableStream<Uint8Array> | null, events: unknown[]) => {
+  const encoder = new TextEncoder();
+  return new ReadableStream({
+    async start(controller) {
+      try {
+        for (const event of events) {
+          controller.enqueue(encoder.encode(sse(event)));
+        }
+        if (!body) {
+          controller.enqueue(encoder.encode('data: [DONE]\n\n'));
+          controller.close();
+          return;
+        }
+        const reader = body.getReader();
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          controller.enqueue(value);
+        }
+        controller.close();
+      } catch (error) {
+        controller.enqueue(encoder.encode(sse({ error: getErrorMessage(error) })));
+        controller.enqueue(encoder.encode('data: [DONE]\n\n'));
+        controller.close();
+      }
+    }
+  });
+};
+
+const getMCPStreamEvents = (usage: MCPRuntimeUsageItem[]) => {
+  if (usage.length === 0) return [];
+  return usage.map(item => ({
+    type: 'deepchat_mcp',
+    id: item.id,
+    name: item.name,
+    status: item.status,
+    details: item.details
+  }));
+};
+
+const getMCPWorkingEvents = (servers: { serverId: string; name: string }[]) => {
+  return servers.map(server => ({
+    type: 'deepchat_mcp',
+    id: server.serverId,
+    name: server.name,
+    status: 'running',
+    details: 'Working...'
+  }));
+};
+
+const singleSseResponse = (provider: string, data: unknown, events: unknown[] = []) => {
   const encoder = new TextEncoder();
   const readableStream = new ReadableStream({
     start(controller) {
+      for (const event of events) {
+        controller.enqueue(encoder.encode(sse(event)));
+      }
       controller.enqueue(encoder.encode(sse(data)));
       controller.enqueue(encoder.encode('data: [DONE]\n\n'));
       controller.close();
@@ -541,39 +598,174 @@ const buildGeminiContents = async (messages: ChatMessage[], ai?: GeminiFileClien
   return contents;
 };
 
-const isChatMessageLike = (message: unknown): message is { role?: string; content?: string } => {
+const isChatMessageLike = (message: unknown): message is { role?: string; content?: string; runtimePromptContent?: string } => {
   return Boolean(message && typeof message === 'object' && 'role' in message);
+};
+
+const getMessageText = (message: { content?: string } | undefined) => typeof message?.content === 'string' ? message.content : '';
+const getRuntimeMessageText = (message: { content?: string; runtimePromptContent?: string } | undefined) => typeof message?.runtimePromptContent === 'string' && message.runtimePromptContent.trim() ? message.runtimePromptContent : getMessageText(message);
+
+const getRouteResponseError = async (response: Response) => {
+  try {
+    const data = await response.clone().json();
+    if (data?.error) return String(data.error);
+  } catch {
+    try {
+      const text = await response.text();
+      if (text) return text;
+    } catch {
+    }
+  }
+  return `Request failed with status ${response.status}`;
+};
+
+const withSystemInstruction = (messages: ChatMessage[], instruction: string): ChatMessage[] => {
+  const nextMessages = messages.map(message => ({ ...message }));
+  const systemIndex = nextMessages.findIndex(message => message.role === 'system');
+  if (systemIndex !== -1) {
+    nextMessages[systemIndex] = {
+      ...nextMessages[systemIndex],
+      content: [nextMessages[systemIndex].content, instruction].filter(Boolean).join('\n\n')
+    };
+    return nextMessages;
+  }
+  return [{ role: 'system', content: instruction }, ...nextMessages];
+};
+
+const pipeSseResponse = async (controller: ReadableStreamDefaultController<Uint8Array>, response: Response) => {
+  const encoder = new TextEncoder();
+  if (!response.ok || !response.body) {
+    controller.enqueue(encoder.encode(sse({ error: await getRouteResponseError(response) })));
+    return;
+  }
+  const reader = response.body.getReader();
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    controller.enqueue(value);
+  }
+};
+
+const createAgenticMCPResponse = (requestUrl: string, provider: string, payload: Record<string, unknown>, originalMessages: ChatMessage[], mcpServers: ReturnType<typeof normalizeChatMCPServers>, tools: ReturnType<typeof normalizeChatTools>, latestUserMessage: string) => {
+  const encoder = new TextEncoder();
+  const candidateServers = getMCPRuntimeCandidateServers(mcpServers, latestUserMessage);
+  const preludeMessages = withSystemInstruction(originalMessages, [
+    'Before using any MCP context, give a short natural first response to the user.',
+    'State your initial approach or what you are about to verify.',
+    'Keep it concise and do not provide the full final answer yet.',
+    buildClarificationInstruction()
+  ].join('\n'));
+  const callDirect = (phaseMessages: ChatMessage[]) => fetch(requestUrl, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      ...payload,
+      messages: phaseMessages,
+      mcpServers: [],
+      tools: [],
+      skipAgentLoop: true,
+      skipRuntimeIntegrations: true
+    })
+  });
+  const getStreamText = async (response: Response) => {
+    if (!response.ok || !response.body) throw new Error(await getRouteResponseError(response));
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let text = '';
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+      for (const line of lines) {
+        if (!line.trim() || line.startsWith(':')) continue;
+        const data = line.replace(/^data:\s*/, '').trim();
+        if (data === '[DONE]') continue;
+        try {
+          const parsed = JSON.parse(data) as unknown;
+          if (!parsed || typeof parsed !== 'object') continue;
+          const json = parsed as Record<string, unknown>;
+          if (json.error) throw new Error(typeof json.error === 'string' ? json.error : 'Provider returned an error.');
+          if (provider === 'anthropic') {
+            const delta = json.delta && typeof json.delta === 'object' ? json.delta as Record<string, unknown> : null;
+            if (json.type === 'content_block_delta' && typeof delta?.text === 'string') text += delta.text;
+          } else if (provider === 'gemini' || provider === 'vertexai') {
+            text += getVertexMessageText(json) || (typeof json.text === 'string' ? json.text : '');
+          } else {
+            const choices = Array.isArray(json.choices) ? json.choices : [];
+            const choice = choices[0] && typeof choices[0] === 'object' ? choices[0] as Record<string, unknown> : null;
+            const delta = choice?.delta && typeof choice.delta === 'object' ? choice.delta as Record<string, unknown> : null;
+            if (typeof delta?.content === 'string') text += delta.content;
+          }
+        } catch (error) {
+          throw new Error(getErrorMessage(error));
+        }
+      }
+    }
+    return text;
+  };
+  return new Response(new ReadableStream({
+    async start(controller) {
+      try {
+        const preludeText = await getStreamText(await callDirect(preludeMessages));
+        const clarificationResult = parseAgentClarification(preludeText);
+        if (clarificationResult.visibleContent) {
+          controller.enqueue(encoder.encode(sse({
+            type: 'deepchat_content',
+            text: clarificationResult.visibleContent
+          })));
+        }
+        if (clarificationResult.clarification) {
+          controller.enqueue(encoder.encode(sse({
+            type: 'deepchat_clarification',
+            clarification: clarificationResult.clarification
+          })));
+          controller.enqueue(encoder.encode('data: [DONE]\n\n'));
+          controller.close();
+          return;
+        }
+        for (const event of getMCPWorkingEvents(candidateServers)) {
+          controller.enqueue(encoder.encode(sse(event)));
+        }
+        const mcpRuntimeResult = await collectMCPRuntimeContextWithUsage(candidateServers, latestUserMessage);
+        const toolRuntimeContext = await collectToolRuntimeContext(tools, latestUserMessage);
+        const runtimeContext = [mcpRuntimeResult.context, toolRuntimeContext].filter(Boolean).join('\n\n');
+        const finalMessages = withSystemInstruction(originalMessages, [
+          'Continue after MCP usage.',
+          'Use the MCP runtime context below as the authoritative external context for the final answer.',
+          'Do not claim unavailable tool actions. If the MCP context is capability-only, use it to decide approach and say what must be verified.',
+          runtimeContext
+        ].filter(Boolean).join('\n\n'));
+        for (const event of getMCPStreamEvents(mcpRuntimeResult.usage)) {
+          controller.enqueue(encoder.encode(sse(event)));
+        }
+        await pipeSseResponse(controller, await callDirect(finalMessages));
+        controller.close();
+      } catch (error) {
+        controller.enqueue(encoder.encode(sse({ error: getErrorMessage(error) })));
+        controller.enqueue(encoder.encode('data: [DONE]\n\n'));
+        controller.close();
+      }
+    }
+  }), { headers: streamHeaders(provider) });
 };
 
 export async function POST(req: Request) {
   try {
-    const { messages, modelId, connectionId, mcpServers, tools } = await req.json() as {
+    const { messages, modelId, connectionId, mcpServers, tools, skipAgentLoop, skipRuntimeIntegrations } = await req.json() as {
       messages?: ChatMessage[];
       modelId?: string;
       connectionId?: string;
       mcpServers?: unknown;
       tools?: unknown;
+      skipAgentLoop?: boolean;
+      skipRuntimeIntegrations?: boolean;
     };
 
     if (!Array.isArray(messages) || (!modelId && !connectionId)) {
       return NextResponse.json({ error: 'Missing parameters' }, { status: 400 });
-    }
-
-    const persona = await getPersona();
-    const latestUserMessage = [...messages].reverse().find((m: unknown) => isChatMessageLike(m) && m.role === 'user')?.content || '';
-    const runtimeMCPServers = normalizeChatMCPServers(mcpServers);
-    const runtimeTools = normalizeChatTools(tools);
-    const mcpRuntimeContext = await collectMCPRuntimeContext(runtimeMCPServers, latestUserMessage);
-    const integrationPrompt = buildIntegrationSystemPrompt(runtimeMCPServers, runtimeTools, mcpRuntimeContext);
-    const systemIndex = messages.findIndex((m: unknown) => isChatMessageLike(m) && m.role === 'system');
-    if (systemIndex !== -1) {
-      const baseSystemPrompt = [persona.memoryReferenceHistory === false ? '' : messages[systemIndex].content, integrationPrompt].filter(Boolean).join('\n\n');
-      messages[systemIndex].content = await getInjectedSystemPrompt(baseSystemPrompt, latestUserMessage);
-    } else {
-      const injected = await getInjectedSystemPrompt(integrationPrompt, latestUserMessage);
-      if (injected) {
-        messages.unshift({ role: 'system', content: injected });
-      }
     }
 
     const connections = await getConnections() as LlmConnection[];
@@ -588,6 +780,35 @@ export async function POST(req: Request) {
     const isStream = llmSettings.streamingResponse;
     const cleanBase = getCleanBaseUrl(p, conn.baseUrl);
     const selectedModel = modelId || conn.model;
+    const persona = await getPersona();
+    const latestUserMessage = getRuntimeMessageText([...messages].reverse().find((m: unknown) => isChatMessageLike(m) && m.role === 'user'));
+    const runtimeMCPServers = skipRuntimeIntegrations ? [] : normalizeChatMCPServers(mcpServers);
+    const runtimeTools = skipRuntimeIntegrations ? [] : normalizeChatTools(tools);
+
+    if (!skipAgentLoop && runtimeMCPServers.length > 0 && getMCPRuntimeCandidateServers(runtimeMCPServers, latestUserMessage).length > 0) {
+      return createAgenticMCPResponse(req.url, p, { modelId, connectionId }, messages, runtimeMCPServers, runtimeTools, latestUserMessage);
+    }
+
+    const mcpRuntimeResult = skipRuntimeIntegrations ? { context: '', usage: [] } : await collectMCPRuntimeContextWithUsage(runtimeMCPServers, latestUserMessage);
+    const mcpRuntimeContext = mcpRuntimeResult.context;
+    const toolRuntimeContext = skipRuntimeIntegrations ? '' : await collectToolRuntimeContext(runtimeTools, latestUserMessage);
+    const runtimeContext = [mcpRuntimeContext, toolRuntimeContext].filter(Boolean).join('\n\n');
+    const integrationEvents = getMCPStreamEvents(mcpRuntimeResult.usage);
+    const usedMCPIds = new Set(mcpRuntimeResult.usage.map(item => item.id));
+    const promptMCPServers = runtimeMCPServers.filter(server => usedMCPIds.has(server.serverId));
+
+    const integrationPrompt = buildIntegrationSystemPrompt(promptMCPServers, runtimeTools, runtimeContext);
+    const systemIndex = messages.findIndex((m: unknown) => isChatMessageLike(m) && m.role === 'system');
+    if (systemIndex !== -1) {
+      const baseSystemPrompt = [persona.memoryReferenceHistory === false ? '' : messages[systemIndex].content, integrationPrompt].filter(Boolean).join('\n\n');
+      messages[systemIndex].content = await getInjectedSystemPrompt(baseSystemPrompt, latestUserMessage);
+    } else {
+      const injected = await getInjectedSystemPrompt(integrationPrompt, latestUserMessage);
+      if (injected) {
+        messages.unshift({ role: 'system', content: injected });
+      }
+    }
+
     const aiLogPayload = {
       route: 'chat',
       provider: conn.provider,
@@ -649,6 +870,9 @@ export async function POST(req: Request) {
           async start(controller) {
             let accumulatedText = '';
             try {
+              for (const event of integrationEvents) {
+                controller.enqueue(encoder.encode(sse(event)));
+              }
               for await (const chunk of responseStream) {
                 const text = extractGeminiText(chunk);
                 accumulatedText += text;
@@ -688,7 +912,7 @@ export async function POST(req: Request) {
         return singleSseResponse(p, {
           text: response.text || '',
           candidates: [{ content: { parts: [{ text: response.text }] } }]
-        });
+        }, integrationEvents);
       }
     } else if (p === 'vertexai') {
       const endpoint = isStream ? 'streamGenerateContent?alt=sse' : 'generateContent';
@@ -742,9 +966,9 @@ export async function POST(req: Request) {
                   reasoning_content: message.reasoning_content
                 }
               }]
-            });
+            }, integrationEvents);
           }
-          return new Response(streamWithAiLog(res.body, aiLogPayload), {
+          return new Response(prependSseEvents(streamWithAiLog(res.body, aiLogPayload), integrationEvents), {
             headers: streamHeaders(p)
           });
         }
@@ -762,7 +986,7 @@ export async function POST(req: Request) {
         return singleSseResponse(p, {
           type: 'content_block_delta',
           delta: { text: output }
-        });
+        }, integrationEvents);
       }
       if (p === 'vertexai') {
         const output = getVertexMessageText(data);
@@ -770,7 +994,7 @@ export async function POST(req: Request) {
         return singleSseResponse(p, {
           text: output,
           candidates: data?.candidates
-        });
+        }, integrationEvents);
       }
       const message = getOpenAiCompatibleMessage(data);
       logAiExchange({ ...aiLogPayload, output: [message.reasoning_content, message.content].filter(Boolean).join('\n') });
@@ -781,10 +1005,10 @@ export async function POST(req: Request) {
             reasoning_content: message.reasoning_content
           }
         }]
-      });
+      }, integrationEvents);
     }
 
-    return new Response(streamWithAiLog(res.body, aiLogPayload), {
+    return new Response(prependSseEvents(streamWithAiLog(res.body, aiLogPayload), integrationEvents), {
       headers: streamHeaders(p)
     });
 

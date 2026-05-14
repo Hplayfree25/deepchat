@@ -4,6 +4,7 @@ import { getChat, saveMessage, updateChatTitle } from '@/app/actions';
 import { getEnabledMCPRuntimeServers } from '@/lib/mcp-settings';
 import { publishDeepChatNotification } from '@/lib/notification-settings';
 import { getEnabledToolRuntimeItems } from '@/lib/tool-settings';
+import { parseAgentClarification, parseGeneratedClarificationAnswerContent, type AgentClarification } from '@/lib/agent-clarification';
 
 interface MemoryApiMessage {
   id?: string;
@@ -29,13 +30,28 @@ interface ChatMessageVersion {
   content?: string;
   reasoning?: string;
   reasoningDuration?: number;
+  mcpNotice?: string;
+  mcpUsage?: MCPUsageItem[];
+  mcpContentOffset?: number;
+  clarification?: AgentClarification;
   versionIndex?: number;
   [key: string]: unknown;
+}
+
+export interface MCPUsageItem {
+  id: string;
+  name: string;
+  status: 'running' | 'completed' | 'error';
+  details?: string;
 }
 
 interface StoredChatMessage extends MemoryAssistantMessage {
   reasoning?: string;
   reasoningDuration?: number;
+  mcpNotice?: string;
+  mcpUsage?: MCPUsageItem[];
+  mcpContentOffset?: number;
+  clarification?: AgentClarification;
   versions?: ChatMessageVersion[];
   currentVersionIndex?: number;
   isStreaming?: boolean;
@@ -53,6 +69,10 @@ export interface ChatGenerationSnapshot {
   assistantMsgId: string;
   content: string;
   reasoning: string;
+  mcpNotice?: string;
+  mcpUsage: MCPUsageItem[];
+  mcpContentOffset?: number;
+  clarification?: AgentClarification;
   isStreaming: boolean;
   isError?: boolean;
   isStopped?: boolean;
@@ -67,6 +87,10 @@ interface ChatGenerationTask {
   controller: AbortController;
   fullContent: string;
   fullReasoning: string;
+  mcpNotice?: string;
+  mcpUsage: MCPUsageItem[];
+  mcpContentOffset?: number;
+  clarification?: AgentClarification;
   startedAt: number;
   reasoningEndTime: number;
   status: ChatGenerationSnapshot['status'];
@@ -118,6 +142,10 @@ const getSnapshot = (task: ChatGenerationTask): ChatGenerationSnapshot => ({
   assistantMsgId: task.assistantMsgId,
   content: task.fullContent,
   reasoning: task.fullReasoning,
+  mcpNotice: task.mcpNotice,
+  mcpUsage: task.mcpUsage,
+  mcpContentOffset: task.mcpContentOffset,
+  clarification: task.clarification,
   isStreaming: task.status === 'running',
   isError: task.status === 'error',
   isStopped: task.status === 'stopped',
@@ -160,24 +188,35 @@ const emitSnapshot = (task: ChatGenerationTask, immediate = false) => {
 };
 
 const formatMessages = (apiMessages: ChatApiMessage[]) => {
+  const sanitizeContent = (content?: string) => parseAgentClarification(content || '').visibleContent;
+  const latestRealUser = (items: ChatApiMessage[]) => [...items].reverse().find(item => item.role === 'user' && !parseGeneratedClarificationAnswerContent(item.content));
   if (apiMessages.length <= 1) {
-    return apiMessages.map(m => ({ role: m.role, content: m.content, attachedFiles: m.attachedFiles }));
+    return apiMessages.map(m => ({ role: m.role, content: sanitizeContent(m.content), attachedFiles: m.attachedFiles }));
   }
 
   const history = apiMessages.slice(0, -1);
   const lastMsg = apiMessages[apiMessages.length - 1];
+  const clarificationAnswer = parseGeneratedClarificationAnswerContent(lastMsg.content);
+  const originalUserMessage = clarificationAnswer ? latestRealUser(history) : undefined;
+  const runtimePromptContent = clarificationAnswer
+    ? [
+      sanitizeContent(originalUserMessage?.content),
+      clarificationAnswer.question ? `Clarification question: ${clarificationAnswer.question}` : '',
+      `Clarification answer ${clarificationAnswer.shortcut}: ${clarificationAnswer.value}`
+    ].filter(Boolean).join('\n\n')
+    : undefined;
   let sysContent = "You are a helpful AI assistant. Below is the history of the current conversation.\n\n=== CHAT HISTORY ===\n";
 
   history.forEach(m => {
     const role = m.role === 'user' ? 'User' : 'Assistant';
-    sysContent += `${role}: ${m.content}\n\n`;
+    sysContent += `${role}: ${sanitizeContent(m.content)}\n\n`;
   });
 
   sysContent += "=== END OF HISTORY ===\n\nPlease respond to the user's latest message based on the context above.";
 
   return [
     { role: 'system', content: sysContent },
-    { role: 'user', content: lastMsg.content, attachedFiles: lastMsg.attachedFiles }
+    { role: 'user', content: sanitizeContent(lastMsg.content), attachedFiles: lastMsg.attachedFiles, runtimePromptContent }
   ];
 };
 
@@ -186,12 +225,16 @@ const getSelectedConnection = (): SelectedModelConnection | null => {
   return selectedModelStr ? JSON.parse(selectedModelStr) : null;
 };
 
-const updateMessageVersion = (message: StoredChatMessage, content: string, reasoning: string, reasoningDuration?: number) => {
+const updateMessageVersion = (message: StoredChatMessage, content: string, reasoning: string, reasoningDuration?: number, mcpNotice?: string, mcpUsage: MCPUsageItem[] = [], mcpContentOffset?: number, clarification?: AgentClarification) => {
   const updated = {
     ...message,
     content,
     reasoning,
-    reasoningDuration
+    reasoningDuration,
+    mcpNotice,
+    mcpUsage,
+    mcpContentOffset,
+    clarification
   };
 
   if (updated.versions && updated.currentVersionIndex !== undefined) {
@@ -200,7 +243,11 @@ const updateMessageVersion = (message: StoredChatMessage, content: string, reaso
       ...updated.versions[updated.currentVersionIndex],
       content,
       reasoning,
-      reasoningDuration
+      reasoningDuration,
+      mcpNotice,
+      mcpUsage,
+      mcpContentOffset,
+      clarification
     };
   }
 
@@ -217,9 +264,11 @@ const saveFinalMessage = async (task: ChatGenerationTask, options: { isError?: b
   const currentMsg = await getAssistantMessage(task.chatId, task.assistantMsgId);
   if (!currentMsg) return null;
 
-  const content = options.errorMessage || task.fullContent || (options.isStopped ? 'Generation stopped.' : '');
+  const parsedContent = parseAgentClarification(task.fullContent);
+  const clarification = task.clarification || parsedContent.clarification;
+  const content = options.errorMessage || parsedContent.visibleContent || (options.isStopped ? 'Generation stopped.' : '');
   const finalMessage = {
-    ...updateMessageVersion(currentMsg, content, task.fullReasoning, getDuration(task)),
+    ...updateMessageVersion(currentMsg, content, task.fullReasoning, getDuration(task), task.mcpNotice, task.mcpUsage, task.mcpContentOffset, clarification),
     isStreaming: false,
     isError: options.isError === true,
     isStopped: options.isStopped === true
@@ -327,8 +376,31 @@ const getGeminiText = (json: Record<string, unknown>) => {
   return parts.map(part => isRecord(part) ? getString(part.text) : '').join('');
 };
 
+const normalizeMCPUsageEvent = (json: Record<string, unknown>): MCPUsageItem | null => {
+  const id = getString(json.id);
+  const name = getString(json.name);
+  const rawStatus = getString(json.status);
+  const status = rawStatus === 'completed' || rawStatus === 'error' ? rawStatus : 'running';
+  if (!id || !name) return null;
+  return {
+    id,
+    name,
+    status,
+    details: getString(json.details)
+  };
+};
+
+const applyMCPUsageEvent = (task: ChatGenerationTask, event: MCPUsageItem) => {
+  const index = task.mcpUsage.findIndex(item => item.id === event.id);
+  if (index === -1) {
+    task.mcpUsage.push(event);
+  } else {
+    task.mcpUsage[index] = { ...task.mcpUsage[index], ...event };
+  }
+};
+
 const finishSuccessfulTask = async (task: ChatGenerationTask) => {
-  if (!task.fullContent && !task.fullReasoning) {
+  if (!task.fullContent && !task.fullReasoning && !task.clarification) {
     throw new Error('The provider returned an empty response.');
   }
 
@@ -428,6 +500,40 @@ const consumeStream = async (task: ChatGenerationTask, res: Response) => {
         throw new Error(getString(json.error) || 'Provider returned an error.');
       }
 
+      if (json.type === 'deepchat_content') {
+        task.fullContent += getString(json.text);
+        emitSnapshot(task, true);
+        continue;
+      }
+
+      if (json.type === 'deepchat_clarification') {
+        const clarification = isRecord(json.clarification) ? json.clarification as unknown as AgentClarification : undefined;
+        if (clarification) {
+          task.clarification = clarification;
+          task.fullContent = parseAgentClarification(task.fullContent).visibleContent;
+          emitSnapshot(task, true);
+        }
+        continue;
+      }
+
+      if (json.type === 'deepchat_mcp_notice') {
+        task.mcpNotice = getString(json.text);
+        emitSnapshot(task, true);
+        continue;
+      }
+
+      if (json.type === 'deepchat_mcp') {
+        const event = normalizeMCPUsageEvent(json);
+        if (event) {
+          if (task.mcpContentOffset === undefined) {
+            task.mcpContentOffset = task.fullContent.length;
+          }
+          applyMCPUsageEvent(task, event);
+          emitSnapshot(task, true);
+        }
+        continue;
+      }
+
       if (provider === 'anthropic') {
         const delta = isRecord(json.delta) ? json.delta : null;
         if (json.type === 'content_block_delta') {
@@ -448,6 +554,12 @@ const consumeStream = async (task: ChatGenerationTask, res: Response) => {
     }
 
     emitSnapshot(task);
+  }
+  const parsedContent = parseAgentClarification(task.fullContent);
+  task.fullContent = parsedContent.visibleContent;
+  if (parsedContent.clarification && !task.clarification) {
+    task.clarification = parsedContent.clarification;
+    emitSnapshot(task, true);
   }
 };
 
@@ -499,6 +611,9 @@ export const startChatGeneration = (chatId: string, apiMessages: ChatApiMessage[
     controller: new AbortController(),
     fullContent: '',
     fullReasoning: '',
+    mcpUsage: [],
+    mcpContentOffset: undefined,
+    clarification: undefined,
     startedAt: Date.now(),
     reasoningEndTime: Date.now(),
     status: 'running',

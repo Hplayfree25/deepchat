@@ -7,14 +7,16 @@ import MarkdownRenderer from '@/components/ui/MarkdownRenderer';
 import ChatComposer, { getComposerFileIcon } from '@/components/ui/ChatComposer';
 import {
   ChatGenerationSnapshot,
+  type MCPUsageItem,
   getChatGenerationState,
   startChatGeneration,
   stopChatGeneration,
   subscribeChatGeneration
 } from '@/lib/chat-generation';
+import { formatClarificationAnswer, isGeneratedClarificationAnswerContent, parseAgentClarification, type AgentClarification, type AgentClarificationAnswer, type AgentClarificationOption } from '@/lib/agent-clarification';
 import {
   Copy, ThumbsUp, ThumbsDown, RefreshCcw,
-  Bot, Check, ChevronDown, ChevronRight, BrainCircuit, ChevronLeft, Edit3, X
+  Bot, Check, ChevronDown, ChevronRight, BrainCircuit, ChevronLeft, Edit3, X, Cpu
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 
@@ -34,6 +36,11 @@ type MessageVersion = {
   content?: string;
   reasoning?: string;
   reasoningDuration?: number;
+  mcpNotice?: string;
+  mcpUsage?: MCPUsageItem[];
+  mcpContentOffset?: number;
+  clarification?: AgentClarification;
+  clarificationAnswer?: AgentClarificationAnswer;
   versionIndex?: number;
   [key: string]: unknown;
 };
@@ -44,6 +51,11 @@ type ChatMessage = {
   content?: string;
   reasoning?: string;
   reasoningDuration?: number;
+  mcpNotice?: string;
+  mcpUsage?: MCPUsageItem[];
+  mcpContentOffset?: number;
+  clarification?: AgentClarification;
+  clarificationAnswer?: AgentClarificationAnswer;
   versions?: MessageVersion[];
   currentVersionIndex?: number;
   chatIndex?: number;
@@ -70,34 +82,52 @@ const normalizeVersions = (versions: MessageVersion[] = []) => versions.map((ver
 }));
 
 const normalizeMessageForDisplay = (message: ChatMessage) => {
+  const parsedMessage = parseAgentClarification(message.content || '');
   if (!Array.isArray(message.versions) || message.versions.length === 0) {
-    return { ...message, isStreaming: false };
+    return {
+      ...message,
+      content: parsedMessage.visibleContent,
+      clarification: message.clarification || parsedMessage.clarification,
+      isStreaming: false
+    };
   }
 
   const versions = normalizeVersions(message.versions);
   const requestedIndex = typeof message.currentVersionIndex === 'number' && Number.isInteger(message.currentVersionIndex) ? message.currentVersionIndex : versions.length - 1;
   const currentVersionIndex = Math.min(Math.max(requestedIndex, 0), versions.length - 1);
   const currentVersion = versions[currentVersionIndex];
+  const parsedVersion = parseAgentClarification(currentVersion?.content ?? message.content ?? '');
 
   return {
     ...message,
     versions,
     currentVersionIndex,
-    content: currentVersion?.content ?? message.content,
+    content: parsedVersion.visibleContent,
     reasoning: currentVersion?.reasoning ?? message.reasoning,
     reasoningDuration: currentVersion?.reasoningDuration ?? message.reasoningDuration,
+    mcpNotice: currentVersion?.mcpNotice ?? message.mcpNotice,
+    mcpUsage: currentVersion?.mcpUsage ?? message.mcpUsage,
+    mcpContentOffset: currentVersion?.mcpContentOffset ?? message.mcpContentOffset,
+    clarification: currentVersion?.clarification ?? message.clarification ?? parsedVersion.clarification,
+    clarificationAnswer: currentVersion?.clarificationAnswer ?? message.clarificationAnswer,
     isStreaming: false
   };
 };
 
 const mergeGenerationSnapshot = (items: ChatMessage[], snapshot: ChatGenerationSnapshot) => items.map(m => {
   if (m.id !== snapshot.assistantMsgId) return m;
+  const parsedSnapshot = parseAgentClarification(snapshot.content);
 
   const updated = {
     ...m,
-    content: snapshot.content,
+    content: parsedSnapshot.visibleContent,
     reasoning: snapshot.reasoning,
     reasoningDuration: snapshot.reasoningDuration,
+    mcpNotice: snapshot.mcpNotice,
+    mcpUsage: snapshot.mcpUsage,
+    mcpContentOffset: snapshot.mcpContentOffset,
+    clarification: snapshot.clarification || parsedSnapshot.clarification,
+    clarificationAnswer: m.clarificationAnswer,
     isStreaming: snapshot.isStreaming,
     isError: snapshot.isError === true,
     isStopped: snapshot.isStopped === true
@@ -107,9 +137,14 @@ const mergeGenerationSnapshot = (items: ChatMessage[], snapshot: ChatGenerationS
     updated.versions = normalizeVersions(updated.versions);
     updated.versions[updated.currentVersionIndex] = {
       ...updated.versions[updated.currentVersionIndex],
-      content: snapshot.content,
+      content: parsedSnapshot.visibleContent,
       reasoning: snapshot.reasoning,
-      reasoningDuration: snapshot.reasoningDuration
+      reasoningDuration: snapshot.reasoningDuration,
+      mcpNotice: snapshot.mcpNotice,
+      mcpUsage: snapshot.mcpUsage,
+      mcpContentOffset: snapshot.mcpContentOffset,
+      clarification: snapshot.clarification || parsedSnapshot.clarification,
+      clarificationAnswer: updated.versions[updated.currentVersionIndex]?.clarificationAnswer
     };
   }
 
@@ -334,6 +369,9 @@ export default function ChatView({ chatId }: { chatId: string }) {
       role: 'assistant',
       content: '',
       reasoning: '',
+      mcpUsage: [],
+      mcpContentOffset: undefined,
+      clarification: undefined,
       createdAt: new Date().toISOString(),
       isStreaming: true,
       chatIndex: messagesRef.current.length + 1
@@ -373,7 +411,12 @@ export default function ChatView({ chatId }: { chatId: string }) {
     const currentVersions = normalizeVersions(assistantMsg.versions || [{
       content: assistantMsg.content,
       reasoning: assistantMsg.reasoning,
-      reasoningDuration: assistantMsg.reasoningDuration
+      reasoningDuration: assistantMsg.reasoningDuration,
+      mcpNotice: assistantMsg.mcpNotice,
+      mcpUsage: assistantMsg.mcpUsage,
+      mcpContentOffset: assistantMsg.mcpContentOffset,
+      clarification: assistantMsg.clarification,
+      clarificationAnswer: assistantMsg.clarificationAnswer
     }]);
 
     const newVersionIndex = currentVersions.length;
@@ -384,6 +427,11 @@ export default function ChatView({ chatId }: { chatId: string }) {
       currentVersionIndex: newVersionIndex,
       content: '',
       reasoning: '',
+      mcpNotice: undefined,
+      mcpUsage: [],
+      mcpContentOffset: undefined,
+      clarification: undefined,
+      clarificationAnswer: undefined,
       reasoningDuration: undefined,
       isStreaming: true,
       isError: false,
@@ -432,6 +480,11 @@ export default function ChatView({ chatId }: { chatId: string }) {
         ...nextMessage,
         content: '',
         reasoning: '',
+        mcpNotice: undefined,
+        mcpUsage: [],
+        mcpContentOffset: undefined,
+        clarification: undefined,
+        clarificationAnswer: undefined,
         reasoningDuration: undefined,
         versions: undefined,
         currentVersionIndex: undefined,
@@ -448,6 +501,10 @@ export default function ChatView({ chatId }: { chatId: string }) {
         role: 'assistant',
         content: '',
         reasoning: '',
+        mcpUsage: [],
+        mcpContentOffset: undefined,
+        clarification: undefined,
+        clarificationAnswer: undefined,
         createdAt: new Date().toISOString(),
         isStreaming: true,
         chatIndex: targetIndex + 1
@@ -487,6 +544,11 @@ export default function ChatView({ chatId }: { chatId: string }) {
       content: version.content,
       reasoning: version.reasoning,
       reasoningDuration: version.reasoningDuration,
+      mcpNotice: version.mcpNotice,
+      mcpUsage: version.mcpUsage,
+      mcpContentOffset: version.mcpContentOffset,
+      clarification: version.clarification,
+      clarificationAnswer: version.clarificationAnswer,
       isError: false
     };
 
@@ -494,9 +556,81 @@ export default function ChatView({ chatId }: { chatId: string }) {
     await saveMessage(chatId, updatedMessage);
   };
 
-  const userMessages = messages.filter(m => m.role === 'user');
+  const handleClarificationAnswer = useCallback(async (msgId: string, option: AgentClarificationOption, customValue?: string) => {
+    if (isLoading) return false;
+    const currentMessages = messagesRef.current;
+    const msgIndex = currentMessages.findIndex(m => m.id === msgId);
+    const assistantMsg = currentMessages[msgIndex];
+    if (!assistantMsg || assistantMsg.role !== 'assistant' || !assistantMsg.clarification) return false;
+
+    const answerValue = option.shortcut === '4' ? (customValue || '').trim() : option.value;
+    if (!answerValue) {
+      toast.error('Type your answer first.');
+      return false;
+    }
+
+    const answer: AgentClarificationAnswer = {
+      shortcut: option.shortcut,
+      question: assistantMsg.clarification.question,
+      label: option.shortcut === '4' ? answerValue : option.label,
+      value: answerValue
+    };
+    const continuationPrompt = formatClarificationAnswer(assistantMsg.clarification, option, answerValue);
+    const versions = assistantMsg.versions ? normalizeVersions(assistantMsg.versions) : undefined;
+    const currentVersionIndex = versions ? Math.min(Math.max(typeof assistantMsg.currentVersionIndex === 'number' ? assistantMsg.currentVersionIndex : versions.length - 1, 0), versions.length - 1) : undefined;
+    if (versions && currentVersionIndex !== undefined && versions[currentVersionIndex]) {
+      versions[currentVersionIndex] = {
+        ...versions[currentVersionIndex],
+        clarification: undefined,
+        clarificationAnswer: answer
+      };
+    }
+
+    const updatedAssistantMessage = {
+      ...assistantMsg,
+      content: '',
+      reasoning: '',
+      mcpNotice: undefined,
+      mcpUsage: [],
+      mcpContentOffset: undefined,
+      clarification: undefined,
+      clarificationAnswer: answer,
+      versions,
+      currentVersionIndex,
+      reasoningDuration: undefined,
+      isStreaming: true,
+      isError: false,
+      isStopped: false,
+      memoriesSaved: false,
+      memoriesSavedCount: undefined,
+      memoryProvider: undefined,
+      memoryModel: undefined
+    };
+    const nextMessages = currentMessages.map(m => m.id === msgId ? updatedAssistantMessage : m);
+
+    setMessages(nextMessages);
+    setInput('');
+    await saveMessage(chatId, updatedAssistantMessage);
+    window.dispatchEvent(new CustomEvent('chatUpdated', { detail: { chatId } }));
+
+    const apiMessages = [
+      ...nextMessages.slice(0, msgIndex),
+      {
+        id: `clarification-${Date.now()}`,
+        role: 'user',
+        content: continuationPrompt
+      }
+    ];
+    const snapshot = startChatGeneration(chatId, apiMessages, msgId);
+    applyGenerationSnapshot(snapshot);
+    return true;
+  }, [applyGenerationSnapshot, chatId, isLoading]);
+
+  const displayMessages = messages.filter(m => !(m.role === 'user' && isGeneratedClarificationAnswerContent(m.content)));
+  const userMessages = displayMessages.filter(m => m.role === 'user');
   const latestUserMessageId = userMessages[userMessages.length - 1]?.id;
   const showCustomScrollbar = userMessages.length >= 3;
+  const activeClarificationMessage = [...messages].reverse().find(m => m.role === 'assistant' && m.clarification && !m.clarificationAnswer && !m.isStreaming);
 
   return (
     <div className="relative flex min-h-0 flex-1 flex-col">
@@ -513,7 +647,7 @@ export default function ChatView({ chatId }: { chatId: string }) {
             </div>
           )}
 
-          {messages.map((msg) => (
+          {displayMessages.map((msg) => (
             <MessageBubble
               key={msg.id}
               message={msg}
@@ -558,18 +692,26 @@ export default function ChatView({ chatId }: { chatId: string }) {
 
       <div className="deepchat-composer-dock pointer-events-none absolute bottom-0 left-0 z-20 flex w-full flex-col items-center px-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] pt-12 sm:p-6">
         <div className="pointer-events-auto w-full max-w-4xl flex flex-col gap-2">
-          <ChatComposer
-            value={input}
-            attachedFiles={attachedFiles}
-            isUploading={isUploading}
-            isBusy={isLoading}
-            maxTextareaHeight={256}
-            onChange={setInput}
-            onSubmit={(value) => sendMessage(value)}
-            onStop={handleStopGeneration}
-            onFilesUpload={handleFilesUpload}
-            onRemoveFile={(index) => setAttachedFiles(prev => prev.filter((_, itemIndex) => itemIndex !== index))}
-          />
+          {activeClarificationMessage?.clarification ? (
+            <ClarificationDock
+              clarification={activeClarificationMessage.clarification}
+              isBusy={isLoading}
+              onSelect={(option, customValue) => handleClarificationAnswer(activeClarificationMessage.id, option, customValue)}
+            />
+          ) : (
+            <ChatComposer
+              value={input}
+              attachedFiles={attachedFiles}
+              isUploading={isUploading}
+              isBusy={isLoading}
+              maxTextareaHeight={256}
+              onChange={setInput}
+              onSubmit={(value) => sendMessage(value)}
+              onStop={handleStopGeneration}
+              onFilesUpload={handleFilesUpload}
+              onRemoveFile={(index) => setAttachedFiles(prev => prev.filter((_, itemIndex) => itemIndex !== index))}
+            />
+          )}
           <div className="mt-3 hidden text-center sm:block">
             <p className="inline-flex rounded-full px-3 py-1 text-xs font-medium text-slate-400 dark:bg-slate-950/70 dark:text-slate-500 dark:ring-1 dark:ring-slate-800/80">DeepChat can make mistakes. Consider verifying important information.</p>
           </div>
@@ -622,6 +764,151 @@ function ReasoningSection({ content, isStreaming = false, duration }: { content:
           {content}
         </div>
       )}
+    </div>
+  );
+}
+
+function MCPUsageSection({ notice, usage = [] }: { notice?: string, usage?: MCPUsageItem[] }) {
+  const [isExpanded, setIsExpanded] = useState(false);
+  if (!notice && usage.length === 0) return null;
+
+  const names = usage.map(item => item.name).join(', ');
+  const hasRunning = usage.some(item => item.status === 'running');
+  const hasError = usage.some(item => item.status === 'error');
+  const title = names ? `Using MCP ${names}` : 'Using MCP';
+
+  return (
+    <div className="mb-3 max-w-full">
+      {notice && (
+        <div className="mb-2 rounded-2xl rounded-tl-sm border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 shadow-sm">
+          {notice}
+        </div>
+      )}
+      {usage.length > 0 && (
+        <div className="overflow-hidden rounded-2xl border border-indigo-100 bg-indigo-50/70 shadow-sm">
+          <button
+            type="button"
+            onClick={() => setIsExpanded(open => !open)}
+            className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left"
+          >
+            <span className="flex min-w-0 items-center gap-2">
+              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-xl bg-white text-indigo-600 shadow-sm">
+                <Cpu className={`h-4 w-4 ${hasRunning ? 'animate-pulse' : ''}`} />
+              </span>
+              <span className="min-w-0">
+                <span className="block truncate text-sm font-extrabold text-slate-800">{title}</span>
+                <span className={`mt-0.5 block text-xs font-bold ${hasError ? 'text-red-500' : hasRunning ? 'text-indigo-500' : 'text-emerald-600'}`}>
+                  {hasError ? 'Needs attention' : hasRunning ? 'Working' : 'Completed'}
+                </span>
+              </span>
+            </span>
+            {isExpanded ? <ChevronDown className="h-4 w-4 shrink-0 text-indigo-500" /> : <ChevronRight className="h-4 w-4 shrink-0 text-indigo-500" />}
+          </button>
+          {isExpanded && (
+            <div className="space-y-3 border-t border-indigo-100 bg-white px-4 py-3">
+              {usage.map(item => (
+                <div key={item.id}>
+                  <div className="mb-1 flex items-center justify-between gap-3">
+                    <p className="text-xs font-extrabold text-slate-700">{item.name}</p>
+                    <span className={`rounded-full px-2 py-0.5 text-[10px] font-extrabold uppercase ${item.status === 'error' ? 'bg-red-50 text-red-500' : item.status === 'running' ? 'bg-indigo-50 text-indigo-500' : 'bg-emerald-50 text-emerald-600'}`}>
+                      {item.status}
+                    </span>
+                  </div>
+                  {item.details && (
+                    <pre className="max-h-52 overflow-y-auto whitespace-pre-wrap rounded-xl bg-slate-950 p-3 text-xs leading-relaxed text-slate-100 custom-scrollbar">{item.details}</pre>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ClarificationDock({ clarification, isBusy, onSelect }: { clarification: AgentClarification, isBusy?: boolean, onSelect: (option: AgentClarificationOption, customValue?: string) => Promise<boolean> | boolean }) {
+  const [isCustomOpen, setIsCustomOpen] = useState(false);
+  const [customValue, setCustomValue] = useState('');
+  const customOption = clarification.options.find(option => option.shortcut === '4');
+  const submitCustom = async () => {
+    if (!customOption) return;
+    const sent = await onSelect(customOption, customValue);
+    if (sent) {
+      setCustomValue('');
+      setIsCustomOpen(false);
+    }
+  };
+
+  return (
+    <div className="mx-auto w-full max-w-3xl overflow-hidden rounded-3xl border border-slate-200 bg-white p-3 shadow-lg shadow-slate-200/60">
+      <p className="px-2 pb-3 text-center text-sm font-extrabold leading-relaxed text-slate-800">{clarification.question}</p>
+      {isCustomOpen ? (
+        <div className="space-y-2">
+          <textarea
+            value={customValue}
+            onChange={(event) => setCustomValue(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Escape') setIsCustomOpen(false);
+              if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') void submitCustom();
+            }}
+            rows={3}
+            autoFocus
+            placeholder="Type your own answer..."
+            className="max-h-40 min-h-24 w-full resize-none rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-medium text-slate-800 outline-none transition focus:border-indigo-300 focus:bg-white focus:ring-4 focus:ring-indigo-100"
+          />
+          <div className="flex justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => setIsCustomOpen(false)}
+              className="inline-flex h-9 items-center gap-1.5 rounded-full bg-slate-100 px-3 text-xs font-extrabold text-slate-600 transition hover:bg-slate-200"
+            >
+              <X className="h-3.5 w-3.5" />
+              Cancel
+            </button>
+            <button
+              type="button"
+              disabled={isBusy || !customValue.trim()}
+              onClick={() => void submitCustom()}
+              className="inline-flex h-9 items-center gap-1.5 rounded-full bg-indigo-600 px-4 text-xs font-extrabold text-white shadow-sm transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+            >
+              <Check className="h-3.5 w-3.5" />
+              Send
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="grid gap-2">
+          {clarification.options.map(option => (
+            <button
+              key={option.shortcut}
+              type="button"
+              disabled={isBusy}
+              onClick={() => option.shortcut === '4' ? setIsCustomOpen(true) : void onSelect(option)}
+              className={`flex items-center gap-3 rounded-2xl border px-3 py-2.5 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${option.tone === 'muted' ? 'border-slate-200 bg-slate-50 text-slate-500 hover:border-slate-300 hover:bg-slate-100' : 'border-indigo-100 bg-indigo-50/80 text-slate-800 hover:border-indigo-200 hover:bg-indigo-100/80'}`}
+            >
+              <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-xl text-xs font-extrabold ${option.tone === 'muted' ? 'bg-white text-slate-500' : 'bg-white text-indigo-600'}`}>
+                {option.shortcut}
+              </span>
+              <span className="min-w-0 text-sm font-extrabold leading-snug">{option.label}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ClarificationAnswerBadge({ answer }: { answer: AgentClarificationAnswer }) {
+  return (
+    <div className="mb-3 max-w-full rounded-2xl rounded-tl-sm border border-indigo-100 bg-indigo-50/80 px-4 py-3 text-slate-800 shadow-sm">
+      {answer.question && (
+        <p className="mb-2 text-xs font-bold leading-relaxed text-slate-500">{answer.question}</p>
+      )}
+      <div className="flex min-w-0 items-center gap-2 text-sm font-extrabold text-indigo-700">
+        <Check className="h-4 w-4 shrink-0" />
+        <span className="min-w-0 break-words">Answer {answer.shortcut}: {answer.label}</span>
+      </div>
     </div>
   );
 }
@@ -706,6 +993,11 @@ const MessageBubble = React.memo(function MessageBubble({ message, userAvatar, u
   const hasVersions = message.versions && message.versions.length > 1;
   const totalVersions = message.versions?.length || 1;
   const currentIdx = Math.min(Math.max(message.currentVersionIndex || 0, 0), totalVersions - 1);
+  const hasMCPUsage = !isUser && Boolean(message.mcpUsage && message.mcpUsage.length > 0);
+  const mcpOffset = typeof message.mcpContentOffset === 'number' ? Math.min(Math.max(message.mcpContentOffset, 0), (message.content || '').length) : undefined;
+  const preMCPContent = hasMCPUsage && mcpOffset !== undefined ? (message.content || '').slice(0, mcpOffset).trim() : '';
+  const postMCPContent = hasMCPUsage && mcpOffset !== undefined ? (message.content || '').slice(mcpOffset).trim() : '';
+  const standardContent = hasMCPUsage && mcpOffset !== undefined ? '' : message.content;
 
   return (
     <div id={`msg-${message.id}`} className={`group/message flex items-start gap-2 sm:gap-4 ${isUser ? 'flex-row-reverse message-user' : 'flex-row'} animate-in fade-in slide-in-from-bottom-2`}>
@@ -721,6 +1013,20 @@ const MessageBubble = React.memo(function MessageBubble({ message, userAvatar, u
       <div className={`flex min-w-0 flex-col ${isUser ? 'max-w-[82%] items-end sm:max-w-[75%]' : 'max-w-[86%] items-start sm:max-w-[75%]'}`}>
         {!isUser && message.reasoning && (
           <ReasoningSection content={message.reasoning} isStreaming={message.isStreaming && !message.content} duration={message.reasoningDuration} />
+        )}
+
+        {!isUser && message.clarificationAnswer && (
+          <ClarificationAnswerBadge answer={message.clarificationAnswer} />
+        )}
+
+        {!isUser && preMCPContent && (
+          <div className="mb-3 max-w-full rounded-2xl rounded-tl-sm border border-slate-200 bg-white px-4 py-3 text-slate-800 shadow-sm sm:px-5">
+            <MarkdownRenderer content={preMCPContent} isStreaming={message.isStreaming && !postMCPContent} />
+          </div>
+        )}
+
+        {!isUser && hasMCPUsage && (
+          <MCPUsageSection notice={message.mcpNotice} usage={message.mcpUsage} />
         )}
 
         {isUser && message.attachedFiles && message.attachedFiles.length > 0 && (
@@ -739,7 +1045,7 @@ const MessageBubble = React.memo(function MessageBubble({ message, userAvatar, u
           </div>
         )}
 
-        {message.content ? (
+        {(standardContent || postMCPContent) ? (
           <div className={`px-4 sm:px-5 py-3 rounded-2xl sm:rounded-3xl shadow-sm max-w-full ${isUser
             ? 'bg-indigo-600 text-white rounded-tr-sm'
             : message.isError
@@ -783,7 +1089,7 @@ const MessageBubble = React.memo(function MessageBubble({ message, userAvatar, u
                 {message.content}
               </div>
             ) : (
-              <MarkdownRenderer content={message.content} isStreaming={message.isStreaming} />
+              <MarkdownRenderer content={postMCPContent || standardContent || ''} isStreaming={message.isStreaming} />
             )}
           </div>
         ) : message.isStreaming && !message.reasoning && (

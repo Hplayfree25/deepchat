@@ -1,6 +1,6 @@
 'use client';
 
-export type ToolCategory = 'Web Search' | 'Web Extraction' | 'Research' | 'Browser Cloud';
+export type ToolCategory = 'API Search' | 'No API Search';
 
 export interface ToolCatalogItem {
   id: string;
@@ -25,6 +25,9 @@ export interface InstalledTool {
 }
 
 export interface ToolSettings {
+  searchEnabled: boolean;
+  codeExecutionEnabled: boolean;
+  urlContextEnabled: boolean;
   installed: InstalledTool[];
 }
 
@@ -32,7 +35,7 @@ export interface ToolRuntimeItem {
   toolId: string;
   name: string;
   description: string;
-  category: ToolCategory;
+  category: string;
   env: string[];
   tags: string[];
   config: Record<string, string>;
@@ -50,24 +53,24 @@ const tool = (id: string, name: string, description: string, category: ToolCateg
 });
 
 export const TOOL_CATALOG: ToolCatalogItem[] = [
-  tool('tavily', 'Tavily Search', 'AI-focused web search with research snippets and source-aware results.', 'Web Search', ['TAVILY_API_KEY'], ['search', 'research', 'web']),
-  tool('brave-search', 'Brave Search', 'Public web, news, image, and local search through Brave Search API.', 'Web Search', ['BRAVE_API_KEY'], ['search', 'news', 'web']),
-  tool('firecrawl', 'Firecrawl', 'Crawl websites, extract structured pages, and convert content to markdown.', 'Web Extraction', ['FIRECRAWL_API_KEY'], ['crawl', 'scrape', 'markdown']),
-  tool('serpapi', 'SerpAPI', 'Google and vertical search results through SerpAPI.', 'Web Search', ['SERPAPI_API_KEY'], ['google', 'search', 'results']),
-  tool('exa', 'Exa Search', 'Neural web search for semantic research and high-quality source discovery.', 'Research', ['EXA_API_KEY'], ['semantic', 'research', 'web']),
-  tool('perplexity', 'Perplexity', 'Online answer and search API for current research workflows.', 'Research', ['PERPLEXITY_API_KEY'], ['ai', 'answers', 'research']),
-  tool('jina-reader', 'Jina Reader', 'Read and convert public web pages into clean LLM-ready text.', 'Web Extraction', ['JINA_API_KEY'], ['reader', 'markdown', 'web']),
-  tool('linkup', 'Linkup Search', 'Web search API optimized for LLM retrieval and citations.', 'Web Search', ['LINKUP_API_KEY'], ['search', 'citations', 'web']),
-  tool('kagi', 'Kagi Search', 'Premium web search and summarization through Kagi APIs.', 'Web Search', ['KAGI_API_KEY'], ['search', 'summary', 'web']),
-  tool('bing', 'Bing Search', 'Microsoft Bing web, news, and image search API.', 'Web Search', ['BING_SEARCH_API_KEY'], ['search', 'microsoft', 'web']),
-  tool('google-custom-search', 'Google Custom Search', 'Programmable Google search engine results.', 'Web Search', ['GOOGLE_SEARCH_API_KEY', 'GOOGLE_SEARCH_ENGINE_ID'], ['google', 'search', 'web']),
-  tool('apify', 'Apify', 'Run actors for web scraping, crawling, and browser automation datasets.', 'Web Extraction', ['APIFY_API_TOKEN'], ['actors', 'scraping', 'automation']),
-  tool('browserbase', 'Browserbase', 'Cloud browser sessions for scraping, automation, and screenshots.', 'Browser Cloud', ['BROWSERBASE_API_KEY', 'BROWSERBASE_PROJECT_ID'], ['browser', 'cloud', 'screenshots']),
-  tool('browserless', 'Browserless', 'Hosted Chrome automation for screenshots, PDFs, and scripted browsing.', 'Browser Cloud', ['BROWSERLESS_API_KEY'], ['chrome', 'automation', 'cloud']),
-  tool('scrapingbee', 'ScrapingBee', 'Web scraping API with proxies, rendering, and extraction helpers.', 'Web Extraction', ['SCRAPINGBEE_API_KEY'], ['scraping', 'proxy', 'web'])
+  tool('openai-compatible-search', 'OpenAI Compatible', 'Use an OpenAI-compatible search endpoint with a custom base URL and API key.', 'API Search', ['OPENAI_COMPATIBLE_SEARCH_BASE_URL', 'OPENAI_COMPATIBLE_SEARCH_API_KEY'], ['openai-compatible', 'api', 'search']),
+  tool('tavily', 'Tavily', 'AI-focused web search with source-aware results for research workflows.', 'API Search', ['TAVILY_API_KEY'], ['api', 'search', 'research']),
+  tool('exa', 'Exa', 'Neural search for semantic web discovery and high-quality source retrieval.', 'API Search', ['EXA_API_KEY'], ['api', 'semantic', 'search']),
+  tool('perplexity', 'Perplexity', 'Online answer and search API for current web research.', 'API Search', ['PERPLEXITY_API_KEY'], ['api', 'answers', 'search']),
+  tool('brave-search', 'Brave Search', 'Public web, news, image, and local search through the Brave Search API.', 'API Search', ['BRAVE_API_KEY'], ['api', 'news', 'search']),
+  tool('serpapi', 'SerpAPI', 'Google and vertical search results through SerpAPI.', 'API Search', ['SERPAPI_API_KEY'], ['api', 'google', 'search']),
+  tool('linkup', 'Linkup', 'Web search API optimized for LLM retrieval and citations.', 'API Search', ['LINKUP_API_KEY'], ['api', 'citations', 'search']),
+  tool('kagi', 'Kagi', 'Premium web search and summarization through Kagi APIs.', 'API Search', ['KAGI_API_KEY'], ['api', 'summary', 'search']),
+  tool('google-custom-search', 'Google Custom Search', 'Programmable Google search engine results.', 'API Search', ['GOOGLE_SEARCH_API_KEY', 'GOOGLE_SEARCH_ENGINE_ID'], ['api', 'google', 'search']),
+  tool('bing', 'Bing', 'No-key web search option for lightweight browsing-style queries.', 'No API Search', [], ['no-api', 'bing', 'search']),
+  tool('duckduckgo', 'DuckDuckGo', 'No-key web search option focused on general web results.', 'No API Search', [], ['no-api', 'privacy', 'search']),
+  tool('wikipedia', 'Wikipedia', 'No-key encyclopedia lookup for public knowledge pages.', 'No API Search', [], ['no-api', 'encyclopedia', 'search'])
 ];
 
 export const defaultToolSettings: ToolSettings = {
+  searchEnabled: false,
+  codeExecutionEnabled: false,
+  urlContextEnabled: false,
   installed: []
 };
 
@@ -110,7 +113,15 @@ const normalizeSettings = (settings: unknown): ToolSettings => {
   const installed = Array.isArray(settings.installed)
     ? settings.installed.map(normalizeInstalledTool).filter((item): item is InstalledTool => Boolean(item))
     : [];
-  return { installed: installed.filter((item, index, list) => list.findIndex(match => match.toolId === item.toolId) === index) };
+  const uniqueInstalled = installed.filter((item, index, list) => list.findIndex(match => match.toolId === item.toolId) === index);
+  const selectedTool = uniqueInstalled.find(item => item.enabled) || uniqueInstalled[0];
+  const selectedInstalled = selectedTool ? [selectedTool] : [];
+  return {
+    searchEnabled: typeof settings.searchEnabled === 'boolean' ? settings.searchEnabled : selectedInstalled.length > 0,
+    codeExecutionEnabled: typeof settings.codeExecutionEnabled === 'boolean' ? settings.codeExecutionEnabled : false,
+    urlContextEnabled: typeof settings.urlContextEnabled === 'boolean' ? settings.urlContextEnabled : false,
+    installed: selectedInstalled
+  };
 };
 
 export const loadToolSettings = () => {
@@ -135,7 +146,8 @@ export const installTool = (toolId: string) => {
   if (!catalogItem) return current;
   if (current.installed.some(item => item.toolId === toolId)) return current;
   return saveToolSettings({
-    installed: [...current.installed, {
+    ...current,
+    installed: [{
       ...catalogItem,
       id: `${catalogItem.id}-${Date.now()}`,
       toolId: catalogItem.id,
@@ -148,24 +160,31 @@ export const installTool = (toolId: string) => {
 
 export const uninstallTool = (installedId: string) => {
   const current = loadToolSettings();
-  return saveToolSettings({ installed: current.installed.filter(item => item.id !== installedId) });
+  return saveToolSettings({ ...current, installed: current.installed.filter(item => item.id !== installedId) });
 };
 
 export const toggleTool = (installedId: string, enabled: boolean) => {
   const current = loadToolSettings();
   return saveToolSettings({
-    installed: current.installed.map(item => item.id === installedId ? { ...item, enabled } : item)
+    ...current,
+    installed: current.installed.map(item => item.id === installedId ? { ...item, enabled } : { ...item, enabled: false })
   });
 };
 
 export const updateToolConfig = (installedId: string, config: Record<string, string>) => {
   const current = loadToolSettings();
   return saveToolSettings({
+    ...current,
     installed: current.installed.map(item => item.id === installedId ? { ...item, config: normalizeConfig(config, item.env) } : item)
   });
 };
 
-export const getEnabledToolRuntimeItems = (): ToolRuntimeItem[] => loadToolSettings().installed.filter(item => item.enabled).map(item => {
+export const updateToolFeatureSettings = (patch: Partial<Pick<ToolSettings, 'searchEnabled' | 'codeExecutionEnabled' | 'urlContextEnabled'>>) => {
+  const current = loadToolSettings();
+  return saveToolSettings({ ...current, ...patch });
+};
+
+const getEnabledSearchRuntimeItems = (settings: ToolSettings): ToolRuntimeItem[] => settings.searchEnabled ? settings.installed.filter(item => item.enabled).map(item => {
   const missingEnv = item.env.filter(envKey => !item.config?.[envKey]);
   return {
     toolId: item.toolId,
@@ -178,4 +197,23 @@ export const getEnabledToolRuntimeItems = (): ToolRuntimeItem[] => loadToolSetti
     configured: missingEnv.length === 0,
     missingEnv
   };
-});
+}) : [];
+
+export const getEnabledToolRuntimeItems = (): ToolRuntimeItem[] => {
+  const settings = loadToolSettings();
+  const runtimeItems = getEnabledSearchRuntimeItems(settings);
+  if (settings.urlContextEnabled) {
+    runtimeItems.push({
+      toolId: 'url-context',
+      name: 'URL Context',
+      description: 'Automatically reads links from the user message and adds the fetched page text as conversation context.',
+      category: 'Context',
+      env: [],
+      tags: ['url', 'browse', 'context'],
+      config: {},
+      configured: true,
+      missingEnv: []
+    });
+  }
+  return runtimeItems;
+};

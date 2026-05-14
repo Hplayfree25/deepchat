@@ -53,6 +53,7 @@ import {
   toggleTool,
   uninstallTool,
   updateToolConfig,
+  updateToolFeatureSettings,
   type InstalledTool,
   type ToolCategory,
   type ToolSettings
@@ -282,6 +283,8 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   const [toolSettings, setToolSettings] = useState<ToolSettings>(defaultToolSettings);
   const [toolSearch, setToolSearch] = useState('');
   const [toolCategory, setToolCategory] = useState<'All' | ToolCategory>('All');
+  const [isSearchManagerOpen, setIsSearchManagerOpen] = useState(false);
+  const [isSearchManagerClosing, setIsSearchManagerClosing] = useState(false);
   const [configuringTool, setConfiguringTool] = useState<InstalledTool | null>(null);
   const [toolConfigDraft, setToolConfigDraft] = useState<Record<string, string>>({});
   const [isToolConfigClosing, setIsToolConfigClosing] = useState(false);
@@ -527,8 +530,18 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   };
 
   const handleInstallTool = (toolId: string) => {
-    setToolSettings(installTool(toolId));
-    toast.success('Tool installed');
+    const nextSettings = installTool(toolId);
+    setToolSettings(nextSettings.searchEnabled ? nextSettings : updateToolFeatureSettings({ searchEnabled: true }));
+    toast.success('Search provider selected');
+  };
+
+  const updateToolFeatures = (patch: Partial<Pick<ToolSettings, 'searchEnabled' | 'codeExecutionEnabled' | 'urlContextEnabled'>>) => {
+    setToolSettings(updateToolFeatureSettings(patch));
+  };
+
+  const openSearchManager = () => {
+    loadToolSettingsState(true);
+    setIsSearchManagerOpen(true);
   };
 
   const openToolConfig = (tool: InstalledTool) => {
@@ -541,6 +554,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     let installedTool = nextSettings.installed.find(tool => tool.toolId === toolId) || null;
     if (!installedTool) {
       nextSettings = installTool(toolId);
+      if (!nextSettings.searchEnabled) nextSettings = updateToolFeatureSettings({ searchEnabled: true });
       installedTool = nextSettings.installed.find(tool => tool.toolId === toolId) || null;
       setToolSettings(nextSettings);
     }
@@ -1024,6 +1038,15 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     runAfterExit(() => {
       setIsMCPManagerOpen(false);
       setIsMCPManagerClosing(false);
+    });
+  };
+
+  const closeSearchManagerModal = () => {
+    if (isSearchManagerClosing) return;
+    setIsSearchManagerClosing(true);
+    runAfterExit(() => {
+      setIsSearchManagerOpen(false);
+      setIsSearchManagerClosing(false);
     });
   };
 
@@ -1779,61 +1802,34 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
               <div className="space-y-8">
                 <div>
                   <h3 className="text-2xl font-bold text-slate-800 dark:text-slate-100">Tools Settings</h3>
-                  <p className="text-sm text-slate-500 mt-1 dark:text-slate-400">Search, research, and web extraction tools are managed separately from MCP servers.</p>
+                  <p className="text-sm text-slate-500 mt-1 dark:text-slate-400">Control Search, Code execution, and URL Context for chat workflows.</p>
                 </div>
 
-                <div className="space-y-4">
-                  <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950/60">
-                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                      <div>
-                        <p className="text-sm font-extrabold text-slate-800 dark:text-slate-100">{toolSettings.installed.length} Installed Tools</p>
-                        <p className="mt-1 text-xs font-medium text-slate-500 dark:text-slate-400">{toolSettings.installed.filter(tool => tool.enabled).length} enabled search tools for runtime use.</p>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="space-y-3">
-                    <div className="relative">
-                      <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400 dark:text-slate-500" />
-                      <input
-                        value={toolSearch}
-                        onChange={event => setToolSearch(event.target.value)}
-                        placeholder="Search tools..."
-                        className="w-full rounded-2xl border border-slate-200 bg-slate-50 py-3 pl-10 pr-4 text-sm font-semibold text-slate-700 outline-none transition-all focus:border-indigo-300 focus:bg-white focus:ring-2 focus:ring-indigo-500/10 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-100 dark:placeholder:text-slate-500 dark:focus:border-indigo-500"
-                      />
-                    </div>
-                    <div className="flex gap-2 overflow-x-auto pb-1 custom-scrollbar">
-                      {TOOL_CATEGORY_OPTIONS.map(category => (
-                        <button
-                          key={category}
-                          onClick={() => setToolCategory(category)}
-                          className={`shrink-0 rounded-full border px-3 py-1.5 text-xs font-extrabold transition-colors ${toolCategory === category ? 'border-indigo-200 bg-indigo-50 text-indigo-600 dark:border-indigo-500/30 dark:bg-indigo-500/15 dark:text-indigo-300' : 'border-slate-200 bg-white text-slate-500 hover:border-slate-300 hover:text-slate-700 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-400 dark:hover:border-slate-700 dark:hover:text-slate-200'}`}
-                        >
-                          {category}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  {toolSettings.installed.length > 0 && (
-                    <div className="space-y-3">
-                      {toolSettings.installed.map(tool => (
-                        <ToolInstalledRow key={tool.id} tool={tool} onToggle={handleToggleTool} onRemove={handleUninstallTool} onConfigure={openToolConfig} />
-                      ))}
-                    </div>
-                  )}
-
-                  <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                    {filteredToolCatalog.map(tool => (
-                      <ToolBrowseCard
-                        key={tool.id}
-                        tool={tool}
-                        installed={installedToolIds.has(tool.id)}
-                        onInstall={handleInstallTool}
-                        onConfigure={handleConfigureCatalogTool}
-                      />
-                    ))}
-                  </div>
+                <div className="grid grid-cols-1 gap-3">
+                  <ToolFeatureRow
+                    icon={<Search className="h-5 w-5" />}
+                    title="Search"
+                    description="Enable web search providers for relevant questions. Manage API and no-API search options in one place."
+                    checked={toolSettings.searchEnabled}
+                    onChange={checked => updateToolFeatures({ searchEnabled: checked })}
+                    actionLabel="Manage"
+                    meta={toolSettings.installed.find(tool => tool.enabled)?.name || 'No provider selected'}
+                    onAction={openSearchManager}
+                  />
+                  <ToolFeatureRow
+                    icon={<Cpu className="h-5 w-5" />}
+                    title="Code execution"
+                    description="Allow Data Analysis to run code in a controlled environment when the execution runtime is available."
+                    checked={toolSettings.codeExecutionEnabled}
+                    onChange={checked => updateToolFeatures({ codeExecutionEnabled: checked })}
+                  />
+                  <ToolFeatureRow
+                    icon={<ExternalLink className="h-5 w-5" />}
+                    title="URL Context"
+                    description="Automatically reads links you include so the assistant can use the provided page content as context."
+                    checked={toolSettings.urlContextEnabled}
+                    onChange={checked => updateToolFeatures({ urlContextEnabled: checked })}
+                  />
                 </div>
               </div>
             )}
@@ -2108,6 +2104,88 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                       <p className="mt-1 text-xs font-medium text-slate-500 dark:text-slate-400">Try another keyword or category.</p>
                     </div>
                   )}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {isSearchManagerOpen && (
+        <div
+          className="fixed inset-0 z-[280] flex items-center justify-center bg-slate-900/80 p-4"
+          style={{ animation: `${isSearchManagerClosing ? 'settingsBackdropOut' : 'settingsBackdropIn'} 150ms ease-out both` }}
+          onClick={(e) => { e.stopPropagation(); closeSearchManagerModal(); }}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            className="flex max-h-[88dvh] w-full max-w-4xl flex-col overflow-hidden rounded-3xl border border-white/10 bg-white shadow-2xl dark:border-slate-800 dark:bg-slate-950 dark:shadow-black/40"
+            style={{ animation: `${isSearchManagerClosing ? 'settingsPanelOut' : 'settingsPanelIn'} 180ms ease-out both` }}
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="border-b border-slate-100 p-4 sm:p-6 dark:border-slate-800">
+              <div className="mb-5 flex items-start justify-between gap-4">
+                <div>
+                  <h3 className="text-xl font-extrabold text-slate-900 dark:text-slate-100">Search API</h3>
+                  <p className="mt-1 text-sm font-medium text-slate-500 dark:text-slate-400">Manage API-based and no-API search providers.</p>
+                </div>
+                <button onClick={closeSearchManagerModal} className="rounded-full p-2 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700 dark:text-slate-500 dark:hover:bg-slate-800 dark:hover:text-slate-200">
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+              <div className="space-y-3">
+                <div className="relative">
+                  <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400 dark:text-slate-500" />
+                  <input
+                    value={toolSearch}
+                    onChange={event => setToolSearch(event.target.value)}
+                    placeholder="Search providers..."
+                    className="w-full rounded-2xl border border-slate-200 bg-slate-50 py-3 pl-10 pr-4 text-sm font-semibold text-slate-700 outline-none transition-all focus:border-indigo-300 focus:bg-white focus:ring-2 focus:ring-indigo-500/10 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-100 dark:placeholder:text-slate-500 dark:focus:border-indigo-500"
+                  />
+                </div>
+                <div className="flex gap-2 overflow-x-auto pb-1 custom-scrollbar">
+                  {TOOL_CATEGORY_OPTIONS.map(category => (
+                    <button
+                      key={category}
+                      onClick={() => setToolCategory(category)}
+                      className={`shrink-0 rounded-full border px-3 py-1.5 text-xs font-extrabold transition-colors ${toolCategory === category ? 'border-indigo-200 bg-indigo-50 text-indigo-600 dark:border-indigo-500/30 dark:bg-indigo-500/15 dark:text-indigo-300' : 'border-slate-200 bg-white text-slate-500 hover:border-slate-300 hover:text-slate-700 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-400 dark:hover:border-slate-700 dark:hover:text-slate-200'}`}
+                    >
+                      {category}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+            <div className="flex-1 overflow-y-auto p-4 custom-scrollbar sm:p-6">
+              {toolSettings.installed.length > 0 && (
+                <div className="mb-6 space-y-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-extrabold text-slate-800 dark:text-slate-100">Installed providers</p>
+                      <p className="mt-1 text-xs font-medium text-slate-500 dark:text-slate-400">Only one Search provider can be active at a time.</p>
+                    </div>
+                  </div>
+                  {toolSettings.installed.map(tool => (
+                    <ToolInstalledRow key={tool.id} tool={tool} onToggle={handleToggleTool} onRemove={handleUninstallTool} onConfigure={openToolConfig} />
+                  ))}
+                </div>
+              )}
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                {filteredToolCatalog.map(tool => (
+                  <ToolBrowseCard
+                    key={tool.id}
+                    tool={tool}
+                    installed={installedToolIds.has(tool.id)}
+                    onInstall={handleInstallTool}
+                    onConfigure={handleConfigureCatalogTool}
+                  />
+                ))}
+              </div>
+              {filteredToolCatalog.length === 0 && (
+                <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-8 text-center dark:border-slate-800 dark:bg-slate-900/60">
+                  <p className="text-sm font-bold text-slate-700 dark:text-slate-100">No provider found</p>
+                  <p className="mt-1 text-xs font-medium text-slate-500 dark:text-slate-400">Try another keyword or category.</p>
                 </div>
               )}
             </div>
@@ -2844,6 +2922,47 @@ function MCPBrowseCard({ server, installed, onInstall, onConfigure }: { server: 
   );
 }
 
+function ToolFeatureRow({ icon, title, description, checked, onChange, actionLabel, meta, onAction }: { icon: React.ReactNode, title: string, description: string, checked: boolean, onChange: (checked: boolean) => void, actionLabel?: string, meta?: string, onAction?: () => void }) {
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition-colors hover:border-indigo-200 dark:border-slate-800 dark:bg-slate-900/80 dark:hover:border-indigo-500/40">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div className="flex min-w-0 items-start gap-4">
+          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-indigo-50 text-indigo-600 dark:bg-indigo-500/15 dark:text-indigo-300">
+            {icon}
+          </div>
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <p className="text-sm font-extrabold text-slate-900 dark:text-slate-100">{title}</p>
+              {meta && <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-extrabold text-slate-500 dark:bg-slate-800 dark:text-slate-300">{meta}</span>}
+            </div>
+            <p className="mt-1 text-sm font-medium leading-relaxed text-slate-500 dark:text-slate-400">{description}</p>
+          </div>
+        </div>
+        <div className="flex shrink-0 items-center gap-2 self-start">
+          {actionLabel && onAction && (
+            <button
+              type="button"
+              onClick={onAction}
+              className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-extrabold text-slate-600 transition-colors hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:border-indigo-500/40 dark:hover:bg-indigo-500/10 dark:hover:text-indigo-300"
+            >
+              {actionLabel}
+            </button>
+          )}
+          <button
+            type="button"
+            role="switch"
+            aria-checked={checked}
+            onClick={() => onChange(!checked)}
+            className={`relative h-8 w-14 shrink-0 rounded-full p-1 transition-colors ${checked ? 'bg-indigo-600 dark:bg-indigo-500' : 'bg-slate-300 dark:bg-slate-700'}`}
+          >
+            <span className={`block h-6 w-6 rounded-full bg-white shadow-sm transition-transform ${checked ? 'translate-x-6' : 'translate-x-0'}`} />
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function ToolInstalledRow({ tool, onToggle, onRemove, onConfigure }: { tool: InstalledTool, onToggle: (installedId: string, enabled: boolean) => void, onRemove: (installedId: string) => void, onConfigure: (tool: InstalledTool) => void }) {
   const configuredCount = tool.env.filter(envKey => Boolean(tool.config?.[envKey])).length;
   return (
@@ -2859,17 +2978,19 @@ function ToolInstalledRow({ tool, onToggle, onRemove, onConfigure }: { tool: Ins
           </div>
           <p className="text-sm font-medium leading-relaxed text-slate-500 dark:text-slate-400">{tool.description}</p>
           <div className="mt-3 text-[11px] font-bold text-slate-400 dark:text-slate-500">
-            {configuredCount}/{tool.env.length} configuration values set
+            {tool.env.length > 0 ? `${configuredCount}/${tool.env.length} configuration values set` : 'No API key required'}
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-2 self-start">
-          <button
-            onClick={() => onConfigure(tool)}
-            className="rounded-full p-2 text-slate-400 transition-colors hover:bg-indigo-50 hover:text-indigo-600 dark:text-slate-500 dark:hover:bg-indigo-500/10 dark:hover:text-indigo-300"
-            title="Configure Tool"
-          >
-            <SettingsIcon className="h-4 w-4" />
-          </button>
+          {tool.env.length > 0 && (
+            <button
+              onClick={() => onConfigure(tool)}
+              className="rounded-full p-2 text-slate-400 transition-colors hover:bg-indigo-50 hover:text-indigo-600 dark:text-slate-500 dark:hover:bg-indigo-500/10 dark:hover:text-indigo-300"
+              title="Configure Tool"
+            >
+              <SettingsIcon className="h-4 w-4" />
+            </button>
+          )}
           <button
             type="button"
             role="switch"
@@ -2911,13 +3032,15 @@ function ToolBrowseCard({ tool, installed, onInstall, onConfigure }: { tool: typ
         ))}
       </div>
       <div className="mt-4 flex items-center justify-end gap-2">
-        <button
-          onClick={() => onConfigure(tool.id)}
-          className="rounded-xl border border-slate-200 bg-white p-2 text-slate-500 transition-colors hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400 dark:hover:border-indigo-500/40 dark:hover:bg-indigo-500/10 dark:hover:text-indigo-300"
-          title="Configure Tool"
-        >
-          <SettingsIcon className="h-4 w-4" />
-        </button>
+        {tool.env.length > 0 && (
+          <button
+            onClick={() => onConfigure(tool.id)}
+            className="rounded-xl border border-slate-200 bg-white p-2 text-slate-500 transition-colors hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400 dark:hover:border-indigo-500/40 dark:hover:bg-indigo-500/10 dark:hover:text-indigo-300"
+            title="Configure Tool"
+          >
+            <SettingsIcon className="h-4 w-4" />
+          </button>
+        )}
         <button
           onClick={() => onInstall(tool.id)}
           disabled={installed}
