@@ -6,7 +6,7 @@ import Image from 'next/image';
 import { getChats, createChat, togglePinChat, archiveChat, deleteChat } from '@/app/actions';
 import toast from 'react-hot-toast';
 import {
-  Bot, Menu, Plus, Home, Compass, MessageSquare, LayoutTemplate,
+  Bot, Plus, Home, Compass, MessageSquare, LayoutTemplate,
   Book, Puzzle, ChevronDown, Star, Pin, X, MoreVertical, Archive, Trash2, Settings, FileText
 } from 'lucide-react';
 import { DeepChatWordmarkSvg } from './brand';
@@ -157,7 +157,7 @@ export default function Sidebar({ isOpen, setIsOpen, isMobileOpen, setMobileOpen
 
   return (
     <>
-      <div className={`hidden min-h-0 sm:flex flex-col bg-[#0f172a] text-slate-300 transition-all duration-300 ease-in-out ${isOpen ? 'w-[248px] xl:w-[260px] m-3 rounded-3xl opacity-100 shadow-xl' : 'w-0 opacity-0 overflow-hidden m-0'}`}>
+      <div className={`hidden min-h-0 origin-left overflow-hidden sm:flex flex-col bg-[#0f172a] text-slate-300 transition-all duration-500 ease-[cubic-bezier(0.22,1,0.36,1)] will-change-[width,opacity,transform,margin] ${isOpen ? 'w-[248px] xl:w-[260px] m-3 translate-x-0 scale-100 rounded-3xl opacity-100 shadow-xl' : 'w-0 m-0 -translate-x-5 scale-[0.98] opacity-0 pointer-events-none'}`}>
         <div className="p-4 flex items-center justify-between">
           <div className="flex items-center gap-2 cursor-pointer" onClick={() => router.push('/')}>
             <div className="w-8 h-8 bg-indigo-600 rounded-2xl flex items-center justify-center">
@@ -165,8 +165,15 @@ export default function Sidebar({ isOpen, setIsOpen, isMobileOpen, setMobileOpen
             </div>
             <DeepChatWordmarkSvg className="h-7 w-[105px] text-white transition-all duration-200 group-hover:scale-[1.02]" />
           </div>
-          <button onClick={() => setIsOpen(false)} className="p-1.5 rounded-xl hover:bg-slate-800 text-slate-400">
-            <Menu className="w-5 h-5" />
+          <button
+            onClick={() => setIsOpen(false)}
+            className="group flex h-9 w-9 items-center justify-center rounded-2xl bg-white/5 text-slate-400 transition-all duration-300 hover:bg-white/10 hover:text-white active:scale-90"
+            aria-label="Close sidebar"
+          >
+            <span className="relative h-5 w-5 transition-transform duration-300 group-hover:rotate-90">
+              <span className="absolute left-1/2 top-1/2 h-0.5 w-5 -translate-x-1/2 -translate-y-1/2 rotate-45 rounded-full bg-current transition-all duration-300 group-hover:w-4" />
+              <span className="absolute left-1/2 top-1/2 h-0.5 w-5 -translate-x-1/2 -translate-y-1/2 -rotate-45 rounded-full bg-current transition-all duration-300 group-hover:w-4" />
+            </span>
           </button>
         </div>
 

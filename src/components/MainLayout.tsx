@@ -588,13 +588,22 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
         onOpenSettings={() => setIsSettingsOpen(true)}
       />
 
-      <div className={`relative z-10 flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-white shadow-xl shadow-slate-200/50 transition-all duration-300 sm:my-3 ${isRightPanelOpen ? 'sm:mr-0' : 'sm:mr-3'} sm:rounded-3xl sm:border sm:border-slate-100 dark:border-slate-700/80 dark:bg-slate-900 dark:shadow-black/30`}>
+      <div className={`relative z-10 flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-white shadow-xl shadow-slate-200/50 transition-all duration-500 ease-[cubic-bezier(0.22,1,0.36,1)] sm:my-3 ${isSidebarOpen ? '' : 'sm:ml-3'} ${isRightPanelOpen ? 'sm:mr-0' : 'sm:mr-3'} sm:rounded-3xl sm:border sm:border-slate-100 dark:border-slate-700/80 dark:bg-slate-900 dark:shadow-black/30`}>
 
         <div className="hidden h-[84px] items-center justify-between border-b border-slate-100 px-4 sm:flex md:px-6 xl:px-8 dark:border-slate-800 dark:bg-slate-950/60">
           <div className="flex items-center gap-4">
             {!isSidebarOpen && (
-              <button onClick={() => setSidebarState(true)} className="p-2 -ml-2 rounded-full hover:bg-slate-100 text-slate-500 transition-colors">
-                <Menu className="w-6 h-6" />
+              <button
+                onClick={() => setSidebarState(true)}
+                className="group relative -ml-2 flex h-10 w-10 items-center justify-center overflow-hidden rounded-full border border-slate-200/80 bg-white text-slate-500 shadow-sm shadow-slate-200/50 transition-all duration-300 hover:-translate-y-0.5 hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-600 hover:shadow-md hover:shadow-indigo-100 active:translate-y-0 active:scale-90 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-500 dark:shadow-black/20 dark:hover:border-indigo-500/40 dark:hover:bg-slate-800 dark:hover:text-indigo-400"
+                aria-label="Open sidebar"
+              >
+                <span className="absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-white/70 to-transparent transition-transform duration-700 group-hover:translate-x-full dark:via-white/10" />
+                <span className="relative flex h-5 w-5 flex-col justify-center gap-1.5">
+                  <span className="h-0.5 w-5 origin-left rounded-full bg-current transition-transform duration-300 group-hover:translate-x-0.5 group-hover:rotate-6" />
+                  <span className="h-0.5 w-3.5 rounded-full bg-current transition-all duration-300 group-hover:w-5 group-hover:translate-x-0.5" />
+                  <span className="h-0.5 w-5 origin-left rounded-full bg-current transition-transform duration-300 group-hover:translate-x-0.5 group-hover:-rotate-6" />
+                </span>
               </button>
             )}
             {!isSidebarOpen && (

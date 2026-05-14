@@ -2,9 +2,10 @@
 
 import fs from 'fs/promises';
 import path from 'path';
+import { USER_DIR, ensureDataDirectories } from '@/lib/data-directories';
 import { getRelevantChatHistoryMemories, getRelevantSavedMemories } from './memory';
 
-const PERSONA_FILE = path.join(process.cwd(), 'data', 'user', 'persona.json');
+const PERSONA_FILE = path.join(USER_DIR, 'persona.json');
 
 export interface PersonaData {
   instructions: string;
@@ -22,7 +23,7 @@ export interface PersonaData {
 
 export async function ensurePersonaFile() {
   try {
-    await fs.mkdir(path.join(process.cwd(), 'data', 'user'), { recursive: true });
+    await ensureDataDirectories();
     try {
       await fs.access(PERSONA_FILE);
     } catch {

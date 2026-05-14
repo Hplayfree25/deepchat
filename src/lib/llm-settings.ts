@@ -1,5 +1,6 @@
 import fs from 'fs/promises';
 import path from 'path';
+import { USER_DIR, ensureDataDirectories } from '@/lib/data-directories';
 
 export type ReasoningLevel = 'minimal' | 'low' | 'medium' | 'high' | 'heavy';
 
@@ -14,7 +15,6 @@ type GeminiThinkingConfig = {
   thinkingLevel?: 'MINIMAL' | 'LOW' | 'MEDIUM' | 'HIGH';
 };
 
-const USER_DIR = path.join(process.cwd(), 'data', 'user');
 const LLM_SETTINGS_FILE = path.join(USER_DIR, 'llm-settings.json');
 const REASONING_LEVELS: ReasoningLevel[] = ['minimal', 'low', 'medium', 'high', 'heavy'];
 
@@ -35,7 +35,7 @@ const normalizeLLMSettings = (settings: Partial<LLMSettings> = {}): LLMSettings 
 });
 
 export const ensureLLMSettingsDir = async () => {
-  await fs.mkdir(USER_DIR, { recursive: true });
+  await ensureDataDirectories();
 };
 
 export const readLLMSettings = async (): Promise<LLMSettings> => {

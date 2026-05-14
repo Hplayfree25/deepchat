@@ -32,10 +32,7 @@ yarn-error.log*
 .env.*
 !.env.example
 
-data/**
-!data/
-!data/**/
-!data/**/.gitkeep
+data/
 
 /uploads/
 /tmp/

@@ -6,61 +6,30 @@ import crypto from 'crypto';
 import { revalidatePath } from 'next/cache';
 import { clearChatHistory, deleteChatReferences } from './memory';
 import { readLLMSettings, writeLLMSettings, type LLMSettings } from '@/lib/llm-settings';
+import { SHARE_DIR, TEMP_FILE_DIR, USER_DIR, LLM_API_DIR, ensureDataDirectories } from '@/lib/data-directories';
+import {
+  createChatRecord,
+  deleteAllChatRecords,
+  deleteChatRecord,
+  deleteSharedSnapshot,
+  ensureDataStore,
+  getChatRecord,
+  getSharedSnapshot,
+  listChatRecords,
+  listExportData,
+  listSharedLinkRecords,
+  saveMessageRecord,
+  saveSharedSnapshot,
+  updateChatRecord,
+  type StoredAttachment,
+  type StoredChat,
+  type StoredMessage,
+  type UserProfileData
+} from '@/lib/db/store';
 
 export type { LLMSettings } from '@/lib/llm-settings';
 
-const CHAT_DIR = path.join(process.cwd(), 'data', 'chat');
-const SHARE_DIR = path.join(CHAT_DIR, 'sharechat');
-const TEMP_FILE_ROOT = path.join(process.cwd(), 'data', 'temp', 'file');
-
-type StoredAttachment = {
-  name?: unknown;
-  ext?: unknown;
-};
-
-type StoredMessageVersion = {
-  content?: unknown;
-  reasoning?: unknown;
-  reasoningDuration?: unknown;
-  versionIndex?: unknown;
-  [key: string]: unknown;
-};
-
-type StoredMessage = {
-  attachedFiles?: unknown;
-  attachedFile?: unknown;
-  id?: unknown;
-  content?: unknown;
-  reasoning?: unknown;
-  reasoningDuration?: unknown;
-  versions?: StoredMessageVersion[];
-  currentVersionIndex?: unknown;
-  chatIndex?: unknown;
-  role?: unknown;
-  [key: string]: unknown;
-};
-
-type StoredChat = {
-  messages?: StoredMessage[];
-  pendingAttachedFiles?: unknown;
-  shareId?: unknown;
-  id?: string;
-  title?: string;
-  createdAt?: string;
-  archived?: boolean;
-  isShared?: boolean;
-  pinned?: boolean;
-  tags?: string[];
-  ownerProfile?: UserProfileData;
-  [key: string]: unknown;
-};
-
-type UserProfileData = {
-  id?: string;
-  name?: string;
-  avatar?: string;
-  plan?: string;
-};
+const TEMP_FILE_ROOT = TEMP_FILE_DIR;
 
 type ConnectionData = {
   id?: string;
@@ -102,6 +71,7 @@ const deleteChatAttachments = async (chat: StoredChat | null | undefined) => {
 
 const deleteSharedChatCopy = async (chat: StoredChat | null | undefined) => {
   if (typeof chat?.shareId !== 'string' || !chat.shareId) return;
+  deleteSharedSnapshot(chat.shareId);
   await unlinkIfExists(path.join(SHARE_DIR, `${chat.shareId}.json`));
 };
 
@@ -125,101 +95,41 @@ const normalizeMessageVersions = (message: StoredMessage) => {
 };
 
 export async function ensureChatDir() {
-  try {
-    await fs.mkdir(CHAT_DIR, { recursive: true });
-  } catch { }
+  ensureDataStore();
 }
 
 export async function createChat(title: string = 'New Chat', attachedFiles?: StoredAttachment[]) {
-  await ensureChatDir();
-  const id = Math.random().toString(36).substring(2, 9);
-  const newChat = {
-    id,
-    title,
-    createdAt: new Date().toISOString(),
-    messages: [],
-    pendingAttachedFiles: attachedFiles || []
-  };
-  await fs.writeFile(path.join(CHAT_DIR, `${id}.json`), JSON.stringify(newChat, null, 2));
-  return id;
+  return createChatRecord(title, attachedFiles);
 }
 
 export async function getChats() {
-  await ensureChatDir();
-  const files = await fs.readdir(CHAT_DIR);
-  const chats = [];
-  for (const file of files) {
-    if (file.endsWith('.json')) {
-      const content = await fs.readFile(path.join(CHAT_DIR, file), 'utf-8');
-      try {
-        const chat = JSON.parse(content);
-        if (!chat.archived) {
-          chats.push(chat);
-        }
-      } catch { }
-    }
-  }
-  return chats.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  return listChatRecords(false);
 }
 
 export async function getArchivedChats() {
-  await ensureChatDir();
-  const files = await fs.readdir(CHAT_DIR);
-  const chats = [];
-  for (const file of files) {
-    if (file.endsWith('.json')) {
-      const content = await fs.readFile(path.join(CHAT_DIR, file), 'utf-8');
-      try {
-        const chat = JSON.parse(content);
-        if (chat.archived) {
-          chats.push(chat);
-        }
-      } catch { }
-    }
-  }
-  return chats.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  return listChatRecords(true)
+    .filter((chat): chat is StoredChat & { id: string } => typeof chat.id === 'string')
+    .map(chat => ({
+      ...chat,
+      id: chat.id,
+      title: chat.title || 'New Chat',
+      createdAt: chat.createdAt || new Date().toISOString()
+    }));
 }
 
 export async function getSharedLinks() {
-  await ensureChatDir();
-  const files = await fs.readdir(CHAT_DIR);
-  const shared = [];
-  for (const file of files) {
-    if (file.endsWith('.json')) {
-      const content = await fs.readFile(path.join(CHAT_DIR, file), 'utf-8');
-      try {
-        const chat = JSON.parse(content);
-        if (chat.shareId) {
-          shared.push({
-            id: chat.id,
-            title: chat.title || 'Untitled Chat',
-            shareId: chat.shareId,
-            createdAt: chat.createdAt,
-            messageCount: Array.isArray(chat.messages) ? chat.messages.length : 0
-          });
-        }
-      } catch { }
-    }
-  }
-  return shared.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  return listSharedLinkRecords();
 }
 
 export async function getChat(id: string): Promise<StoredChat | null> {
-  try {
-    const content = await fs.readFile(path.join(CHAT_DIR, `${id}.json`), 'utf-8');
-    return JSON.parse(content) as StoredChat;
-  } catch {
-    return null;
-  }
+  return getChatRecord(id);
 }
 
 export async function shareChat(chatId: string) {
   const chat = await getChat(chatId);
   if (!chat) return null;
 
-  await fs.mkdir(SHARE_DIR, { recursive: true });
-
-  let shareId = chat.shareId;
+  let shareId = typeof chat.shareId === 'string' ? chat.shareId : null;
   const ownerProfile = await getUserProfile();
   if (!shareId) {
     shareId = crypto.randomBytes(16).toString('hex');
@@ -230,124 +140,68 @@ export async function shareChat(chatId: string) {
     name: ownerProfile?.name || 'Guest',
     avatar: ownerProfile?.avatar || 'https://api.dicebear.com/7.x/avataaars/svg?seed=Felix'
   };
-  await fs.writeFile(path.join(CHAT_DIR, `${chatId}.json`), JSON.stringify(chat, null, 2));
-
-  await fs.writeFile(path.join(SHARE_DIR, `${shareId}.json`), JSON.stringify(chat, null, 2));
+  updateChatRecord(chatId, chat);
+  saveSharedSnapshot(shareId, chatId, chat);
 
   return shareId;
 }
 
 export async function getSharedChat(shareId: string) {
-  try {
-    const content = await fs.readFile(path.join(SHARE_DIR, `${shareId}.json`), 'utf-8');
-    const chat = JSON.parse(content);
-    if (!chat.ownerProfile) {
-      const ownerProfile = await getUserProfile();
-      return {
-        ...chat,
-        ownerProfile: {
-          name: ownerProfile?.name || 'Guest',
-          avatar: ownerProfile?.avatar || 'https://api.dicebear.com/7.x/avataaars/svg?seed=Felix'
-        }
-      };
-    }
-    return chat;
-  } catch {
-    return null;
+  const chat = getSharedSnapshot(shareId);
+  if (!chat) return null;
+  if (!chat.ownerProfile) {
+    const ownerProfile = await getUserProfile();
+    return {
+      ...chat,
+      ownerProfile: {
+        name: ownerProfile?.name || 'Guest',
+        avatar: ownerProfile?.avatar || 'https://api.dicebear.com/7.x/avataaars/svg?seed=Felix'
+      }
+    };
   }
+  return chat;
 }
 
 export async function saveMessage(id: string, message: StoredMessage) {
-  const chat = await getChat(id);
-  if (chat) {
-    const messages = Array.isArray(chat.messages) ? chat.messages : [];
-    const idx = messages.findIndex((m) => m.id === message.id);
-    const normalizedMessage = normalizeMessageVersions({
-      ...message,
-      chatIndex: typeof message.chatIndex === 'number'
-        ? message.chatIndex
-        : idx !== -1
-          ? messages[idx]?.chatIndex ?? idx
-          : messages.length
-    });
-    if (idx !== -1) {
-      messages[idx] = normalizedMessage;
-    } else {
-      messages.push(normalizedMessage);
-    }
-    chat.messages = messages;
-
-    if (chat.pendingAttachedFiles) {
-      delete chat.pendingAttachedFiles;
-    }
-
-    await fs.writeFile(path.join(CHAT_DIR, `${id}.json`), JSON.stringify(chat, null, 2));
-    return chat;
-  }
-  return null;
+  return saveMessageRecord(id, normalizeMessageVersions(message));
 }
 
 export async function updateChatTitle(id: string, title: string) {
-  const chat = await getChat(id);
-  if (chat) {
-    chat.title = title;
-    await fs.writeFile(path.join(CHAT_DIR, `${id}.json`), JSON.stringify(chat, null, 2));
-    revalidatePath('/');
-    return chat;
-  }
-  return null;
+  const chat = updateChatRecord(id, { title });
+  revalidatePath('/');
+  return chat;
 }
 
 export async function updateChatTags(id: string, tags: string[]) {
-  const chat = await getChat(id);
-  if (chat) {
-    chat.tags = tags;
-    await fs.writeFile(path.join(CHAT_DIR, `${id}.json`), JSON.stringify(chat, null, 2));
-    revalidatePath('/');
-    return chat;
-  }
-  return null;
+  const chat = updateChatRecord(id, { tags });
+  revalidatePath('/');
+  return chat;
 }
 
 export async function togglePinChat(id: string) {
   const chat = await getChat(id);
   if (chat) {
-    chat.pinned = !chat.pinned;
-    await fs.writeFile(path.join(CHAT_DIR, `${id}.json`), JSON.stringify(chat, null, 2));
+    const next = updateChatRecord(id, { pinned: !chat.pinned });
     revalidatePath('/');
-    return chat;
+    return next;
   }
   return null;
 }
 
 export async function archiveChat(id: string) {
-  const chat = await getChat(id);
-  if (chat) {
-    chat.archived = true;
-    await fs.writeFile(path.join(CHAT_DIR, `${id}.json`), JSON.stringify(chat, null, 2));
-    revalidatePath('/');
-    return chat;
-  }
-  return null;
+  const chat = updateChatRecord(id, { archived: true });
+  revalidatePath('/');
+  return chat;
 }
 
 export async function archiveAllChats() {
-  await ensureChatDir();
   try {
-    const files = await fs.readdir(CHAT_DIR);
+    const chats = listChatRecords(false);
     let count = 0;
-    for (const file of files) {
-      if (file.endsWith('.json')) {
-        const filePath = path.join(CHAT_DIR, file);
-        try {
-          const chat = JSON.parse(await fs.readFile(filePath, 'utf-8'));
-          if (!chat.archived) {
-            chat.archived = true;
-            await fs.writeFile(filePath, JSON.stringify(chat, null, 2));
-            count += 1;
-          }
-        } catch { }
-      }
+    for (const chat of chats) {
+      if (!chat.id) continue;
+      updateChatRecord(chat.id, { archived: true });
+      count += 1;
     }
     revalidatePath('/');
     return { success: true, count };
@@ -363,7 +217,7 @@ export async function deleteChat(id: string) {
       await deleteChatAttachments(chat);
       await deleteSharedChatCopy(chat);
     }
-    await unlinkIfExists(path.join(CHAT_DIR, `${id}.json`));
+    deleteChatRecord(id);
     await deleteChatReferences(id);
     revalidatePath('/');
     return true;
@@ -397,11 +251,9 @@ export async function uploadFile(formData: FormData) {
   }
 }
 
-const USER_DIR = path.join(process.cwd(), 'data', 'user');
-
 export async function ensureUserDir() {
   try {
-    await fs.mkdir(USER_DIR, { recursive: true });
+    await ensureDataDirectories();
   } catch { }
 }
 
@@ -436,11 +288,11 @@ export async function saveLLMSettings(settings: Partial<LLMSettings>) {
   return writeLLMSettings(settings);
 }
 
-const LLM_DIR = path.join(process.cwd(), 'data', 'llm', 'api');
+const LLM_DIR = LLM_API_DIR;
 
 export async function ensureLLMDir() {
   try {
-    await fs.mkdir(LLM_DIR, { recursive: true });
+    await ensureDataDirectories();
   } catch { }
 }
 
@@ -478,21 +330,13 @@ export async function deleteConnection(id: string) {
 }
 
 export async function deleteAllChats() {
-  await ensureChatDir();
   try {
-    const files = await fs.readdir(CHAT_DIR);
-    for (const file of files) {
-      if (file.endsWith('.json')) {
-        const filePath = path.join(CHAT_DIR, file);
-        try {
-          const chat = JSON.parse(await fs.readFile(filePath, 'utf-8'));
-          await deleteChatAttachments(chat);
-          await deleteSharedChatCopy(chat);
-        } catch { }
-        await unlinkIfExists(filePath);
-      }
+    const chats = listChatRecords(false).concat(listChatRecords(true));
+    for (const chat of chats) {
+      await deleteChatAttachments(chat);
+      await deleteSharedChatCopy(chat);
     }
-    await fs.rm(SHARE_DIR, { recursive: true, force: true });
+    deleteAllChatRecords();
     await clearChatHistory();
     revalidatePath('/');
     return true;
@@ -517,9 +361,9 @@ export async function deleteAllConnections() {
 }
 
 export async function exportData() {
-  await ensureChatDir();
   await ensureUserDir();
   await ensureLLMDir();
+  const dynamicData = listExportData();
 
   const readDirJson = async (dir: string) => {
     try {
@@ -548,13 +392,13 @@ export async function exportData() {
 
   return {
     exportedAt: new Date().toISOString(),
-    chats: await readDirJson(CHAT_DIR),
-    sharedChats: await readDirJson(path.join(CHAT_DIR, 'sharechat')),
+    chats: dynamicData.chats,
+    sharedChats: dynamicData.sharedChats,
     profile: await readJson(path.join(USER_DIR, 'profile.json')),
     persona: await readJson(path.join(USER_DIR, 'persona.json')),
     memories: {
-      saved: await readJson(path.join(USER_DIR, 'memories', 'reference-saved-memories.json')),
-      chatHistory: await readJson(path.join(USER_DIR, 'memories', 'reference-chat-history.json'))
+      saved: dynamicData.savedMemories,
+      chatHistory: dynamicData.chatHistory
     },
     connections: await readDirJson(LLM_DIR)
   };

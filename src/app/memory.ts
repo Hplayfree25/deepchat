@@ -1,14 +1,17 @@
 'use server';
 
-import fs from 'fs/promises';
-import path from 'path';
 import crypto from 'crypto';
+import {
+  clearChatHistoryRecords,
+  deleteChatHistoryForChat,
+  ensureDataStore,
+  listChatHistoryMemories,
+  listChatRecords,
+  listSavedMemories,
+  replaceChatHistoryMemories,
+  replaceSavedMemories
+} from '@/lib/db/store';
 
-const MEMORY_DIR = path.join(process.cwd(), 'data', 'user', 'memories');
-const CHAT_DIR = path.join(process.cwd(), 'data', 'chat');
-const LEGACY_MEMORY_FILE = path.join(process.cwd(), 'data', 'user', 'memories.json');
-const SAVED_MEMORY_FILE = path.join(MEMORY_DIR, 'reference-saved-memories.json');
-const CHAT_HISTORY_FILE = path.join(MEMORY_DIR, 'reference-chat-history.json');
 const MAX_MEMORIES = 80;
 const MAX_CHAT_HISTORY = 120;
 const VECTOR_SIZE = 96;
@@ -55,7 +58,6 @@ interface MemoryMetadata {
 }
 
 const defaultMemories: SavedMemory[] = [];
-const defaultChatHistory: ChatHistoryMemory[] = [];
 
 const normalizeMemoryText = (text: string) => text.toLowerCase().replace(/\s+/g, ' ').trim();
 const memorySynonyms: Record<string, string> = {
@@ -233,56 +235,26 @@ const dedupeSavedMemoryList = (memories: SavedMemory[]) => {
   return deduped;
 };
 
-const readJsonArray = async <T>(filePath: string): Promise<T[]> => {
-  try {
-    const data = await fs.readFile(filePath, 'utf-8');
-    const parsed = JSON.parse(data);
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
-};
-
 const getExistingChatIds = async () => {
-  try {
-    const files = await fs.readdir(CHAT_DIR);
-    return new Set(files.filter(file => file.endsWith('.json')).map(file => path.basename(file, '.json')));
-  } catch {
-    return null;
-  }
+  const chats = listChatRecords(false).concat(listChatRecords(true));
+  return new Set(chats.map(chat => chat.id).filter((id): id is string => typeof id === 'string'));
 };
 
 export async function ensureMemoryFile() {
-  try {
-    await fs.mkdir(MEMORY_DIR, { recursive: true });
-    const legacyMemories = await readJsonArray<SavedMemory>(LEGACY_MEMORY_FILE);
-
-    try {
-      await fs.access(SAVED_MEMORY_FILE);
-    } catch {
-      await fs.writeFile(SAVED_MEMORY_FILE, JSON.stringify(legacyMemories.length > 0 ? legacyMemories : defaultMemories, null, 2));
-    }
-
-    try {
-      await fs.access(CHAT_HISTORY_FILE);
-    } catch {
-      await fs.writeFile(CHAT_HISTORY_FILE, JSON.stringify(defaultChatHistory, null, 2));
-    }
-  } catch {
-  }
+  ensureDataStore();
 }
 
 export async function getSavedMemories(): Promise<SavedMemory[]> {
   await ensureMemoryFile();
   try {
-    const parsed = await readJsonArray<SavedMemory>(SAVED_MEMORY_FILE);
+    const parsed = listSavedMemories() as SavedMemory[];
     const valid = parsed
       .filter(item => typeof item?.content === 'string' && item.content.trim())
       .map(normalizeSavedMemory)
       .sort((a, b) => new Date(b.updatedAt || b.createdAt || 0).getTime() - new Date(a.updatedAt || a.createdAt || 0).getTime());
     const deduped = dedupeSavedMemoryList(valid).slice(0, MAX_MEMORIES);
     if (parsed.some(item => !Array.isArray(item?.vector) || item.vector.length !== VECTOR_SIZE)) {
-      await fs.writeFile(SAVED_MEMORY_FILE, JSON.stringify(deduped, null, 2));
+      replaceSavedMemories(deduped);
     }
     return deduped;
   } catch {
@@ -371,7 +343,7 @@ export async function saveExtractedMemories(items: MemoryInput[], metadata: Memo
   }
 
   if (changed) {
-    await fs.writeFile(SAVED_MEMORY_FILE, JSON.stringify(dedupeSavedMemoryList(next).slice(0, MAX_MEMORIES), null, 2));
+    replaceSavedMemories(dedupeSavedMemoryList(next).slice(0, MAX_MEMORIES));
   }
 
   return saved;
@@ -413,14 +385,14 @@ export async function recordChatHistoryMemory(userMessage: string, assistantMess
     ? [entry, ...existing]
     : [entry, ...existing.filter((_, index) => index !== duplicateIndex)];
 
-  await fs.writeFile(CHAT_HISTORY_FILE, JSON.stringify(next.slice(0, MAX_CHAT_HISTORY), null, 2));
+  replaceChatHistoryMemories(next.slice(0, MAX_CHAT_HISTORY));
   return entry;
 }
 
 export async function getChatHistoryMemories(): Promise<ChatHistoryMemory[]> {
   await ensureMemoryFile();
   try {
-    const parsed = await readJsonArray<ChatHistoryMemory>(CHAT_HISTORY_FILE);
+    const parsed = listChatHistoryMemories() as ChatHistoryMemory[];
     const existingChatIds = await getExistingChatIds();
     const valid = parsed
       .filter(item => typeof item?.userMessage === 'string' && typeof item?.assistantMessage === 'string')
@@ -431,7 +403,7 @@ export async function getChatHistoryMemories(): Promise<ChatHistoryMemory[]> {
       valid.length !== parsed.length ||
       parsed.some(item => !Array.isArray(item?.vector) || item.vector.length !== VECTOR_SIZE)
     ) {
-      await fs.writeFile(CHAT_HISTORY_FILE, JSON.stringify(valid.slice(0, MAX_CHAT_HISTORY), null, 2));
+      replaceChatHistoryMemories(valid.slice(0, MAX_CHAT_HISTORY));
     }
     return valid;
   } catch {
@@ -462,7 +434,7 @@ export async function deleteSavedMemory(id: string) {
   try {
     const memories = await getSavedMemories();
     const next = memories.filter(memory => memory.id !== id);
-    await fs.writeFile(SAVED_MEMORY_FILE, JSON.stringify(next, null, 2));
+    replaceSavedMemories(next);
     return true;
   } catch {
     return false;
@@ -472,7 +444,7 @@ export async function deleteSavedMemory(id: string) {
 export async function clearSavedMemories() {
   await ensureMemoryFile();
   try {
-    await fs.writeFile(SAVED_MEMORY_FILE, JSON.stringify([], null, 2));
+    replaceSavedMemories(defaultMemories);
     return true;
   } catch {
     return false;
@@ -482,7 +454,7 @@ export async function clearSavedMemories() {
 export async function clearChatHistory() {
   await ensureMemoryFile();
   try {
-    await fs.writeFile(CHAT_HISTORY_FILE, JSON.stringify([], null, 2));
+    clearChatHistoryRecords();
     return true;
   } catch {
     return false;
@@ -492,11 +464,7 @@ export async function clearChatHistory() {
 export async function deleteChatReferences(chatId: string) {
   await ensureMemoryFile();
   try {
-    const history = await getChatHistoryMemories();
-    const nextHistory = history.filter(item => item.chatId !== chatId);
-    if (history.length !== nextHistory.length) {
-      await fs.writeFile(CHAT_HISTORY_FILE, JSON.stringify(nextHistory, null, 2));
-    }
+    deleteChatHistoryForChat(chatId);
     return true;
   } catch {
     return false;
