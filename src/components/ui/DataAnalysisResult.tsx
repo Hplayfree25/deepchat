@@ -143,6 +143,22 @@ function getSpreadsheetExport(data: AnalysisArtifact | null) {
   }) || null;
 }
 
+function hasChartOutput(chart: AnalysisChart) {
+  return Boolean(chart.staticUrl || chart.interactiveUrl);
+}
+
+function getRenderableExports(data: AnalysisArtifact | null) {
+  return data?.exports?.filter(item => item.url) || [];
+}
+
+function hasRenderableArtifact(data: AnalysisArtifact | null) {
+  if (!data || data.success === false) return false;
+  const charts = getCharts(data).filter(hasChartOutput);
+  const exports = getRenderableExports(data);
+  const workbook = data.workbookPreview;
+  return charts.length > 0 || exports.length > 0 || Boolean(workbook?.sheets?.length);
+}
+
 function normalizeChartKey(chart: AnalysisChart) {
   return [
     chart.type || 'chart',
@@ -569,7 +585,7 @@ export function DataAnalysisActions({ value }: { value: string }) {
 
 export default function DataAnalysisResult({ value }: { value: string }) {
   const data = useMemo(() => parseArtifact(value), [value]);
-  const charts = useMemo(() => mergeCharts(getCharts(data)), [data]);
+  const charts = useMemo(() => mergeCharts(getCharts(data).filter(hasChartOutput)), [data]);
   const dataset = getPrimaryDataset(data);
   const [activeChart, setActiveChart] = useState(0);
   const [interactive, setInteractive] = useState(false);
@@ -579,7 +595,7 @@ export default function DataAnalysisResult({ value }: { value: string }) {
   const colorRef = useRef<HTMLDivElement | null>(null);
   const chart = charts[activeChart] || charts[0];
   const filterClass = chartColors.find(item => item.id === filter)?.className || '';
-  const exports = data?.exports?.filter(item => item.url) || [];
+  const exports = getRenderableExports(data);
   const spreadsheetExport = getSpreadsheetExport(data);
   const isSpreadsheet = Boolean(spreadsheetExport && charts.length === 0);
   const warnings = [...(data?.warnings || []), ...(dataset?.warnings || [])].filter(Boolean);
@@ -602,28 +618,13 @@ export default function DataAnalysisResult({ value }: { value: string }) {
     };
   }, [expanded]);
 
-  if (!data) {
-    return (
-      <div className="not-prose rounded-lg border border-red-100 bg-red-50 p-4 text-sm font-semibold text-red-600">
-        Invalid analysis artifact.
-      </div>
-    );
-  }
+  if (!data || !hasRenderableArtifact(data)) return null;
 
-  if (data.success === false) {
-    return (
-      <div className="not-prose rounded-lg border border-red-100 bg-red-50 p-4 text-sm text-red-700">
-        <p className="font-extrabold">Code Execution failed</p>
-        <p className="mt-2 whitespace-pre-wrap font-mono text-xs">{data.error || 'Unknown analysis error'}</p>
-        {data.installHint && <p className="mt-3 font-semibold text-red-600">{data.installHint}</p>}
-      </div>
-    );
-  }
-
-  const title = chart?.title || data.title || dataset?.name || 'Data Analysis';
+  const artifact: AnalysisArtifact = data;
+  const title = chart?.title || artifact.title || dataset?.name || 'Data Analysis';
   if (isSpreadsheet) {
-    const spreadsheetTitle = data.workbookPreview?.fileName || spreadsheetExport?.label || dataset?.name || 'Excel workbook';
-    const workbook = data.workbookPreview;
+    const spreadsheetTitle = artifact.workbookPreview?.fileName || spreadsheetExport?.label || dataset?.name || 'Excel workbook';
+    const workbook = artifact.workbookPreview;
     const canShowWorkbookFullscreen = Boolean(workbook?.sheets?.length);
     const spreadsheetFullscreen = expanded ? canShowWorkbookFullscreen && workbook ? (
       <ExcelWorkbookFullscreen
@@ -647,7 +648,7 @@ export default function DataAnalysisResult({ value }: { value: string }) {
             </IconButton>
           </div>
         </div>
-        <SpreadsheetPreview data={data} expanded />
+        <SpreadsheetPreview data={artifact} expanded />
       </div>
     ) : null;
 
@@ -668,7 +669,7 @@ export default function DataAnalysisResult({ value }: { value: string }) {
           </div>
         </div>
         <div className="border-t border-slate-100">
-          <SpreadsheetPreview data={data} onOpen={() => setExpanded(true)} />
+          <SpreadsheetPreview data={artifact} onOpen={() => setExpanded(true)} />
         </div>
         {warnings.length > 0 && (
           <div className="border-t border-slate-100 px-4 py-3">

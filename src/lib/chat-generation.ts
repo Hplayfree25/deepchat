@@ -729,6 +729,17 @@ const encodeAnalysisPayload = (value: string) => {
   return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
 };
 
+const hasRenderableAnalysisOutput = (data: CodeAnalysisResponse) => {
+  const charts = Array.isArray(data.datasets)
+    ? data.datasets.flatMap(dataset => isRecord(dataset) && Array.isArray(dataset.charts) ? dataset.charts : [])
+    : [];
+  const hasChart = charts.some(chart => isRecord(chart) && (getString(chart.staticUrl) || getString(chart.interactiveUrl)));
+  const hasExport = Array.isArray(data.exports) && data.exports.some(item => isRecord(item) && getString(item.url));
+  const workbook = isRecord(data.workbookPreview) ? data.workbookPreview : null;
+  const hasWorkbook = Array.isArray(workbook?.sheets) && workbook.sheets.length > 0;
+  return hasChart || hasExport || hasWorkbook;
+};
+
 const formatAnalysisMarkdown = (content: string, data: CodeAnalysisResponse) => {
   const artifactJson = JSON.stringify(data, null, 2);
   const chartBlock = [
@@ -737,10 +748,13 @@ const formatAnalysisMarkdown = (content: string, data: CodeAnalysisResponse) => 
     '```'
   ].join('\n');
   const actionsToken = `\`deepchat-analysis-actions:${encodeAnalysisPayload(artifactJson)}\``;
-  const cleanContent = content.replaceAll('{{DEEPCHAT_ANALYSIS_ACTIONS}}', '').trim();
-  const withChart = cleanContent.includes('{{DEEPCHAT_ANALYSIS_CHART}}')
-    ? cleanContent.replace('{{DEEPCHAT_ANALYSIS_CHART}}', `\n\n${chartBlock}\n\n`)
-    : [cleanContent, chartBlock].filter(Boolean).join('\n\n');
+  const canRender = hasRenderableAnalysisOutput(data);
+  const cleanContent = content.replaceAll('{{DEEPCHAT_ANALYSIS_ACTIONS}}', '').replaceAll('{{DEEPCHAT_ANALYSIS_CHART}}', canRender ? '{{DEEPCHAT_ANALYSIS_CHART}}' : '').trim();
+  const withChart = canRender
+    ? cleanContent.includes('{{DEEPCHAT_ANALYSIS_CHART}}')
+      ? cleanContent.replace('{{DEEPCHAT_ANALYSIS_CHART}}', `\n\n${chartBlock}\n\n`)
+      : [cleanContent, chartBlock].filter(Boolean).join('\n\n')
+    : cleanContent;
   return `${withChart.trimEnd()} ${actionsToken}`;
 };
 
@@ -924,7 +938,7 @@ const getAnalysisCodeInstruction = (files: AttachedDataFile[], requestedCharts: 
   'Print a concise execution summary with the key computed values.'
 ].filter(Boolean).join('\n');
 
-const getFinalAnalysisInstruction = (analysisContext: string) => [
+const getFinalAnalysisInstruction = (analysisContext: string, hasRenderableOutput: boolean) => [
   'Continue the assistant response after Code Execution and do not repeat the opening setup sentence.',
   'Write the final user-facing answer naturally in the user language.',
   'Use the analysis output below as tool context.',
@@ -932,7 +946,7 @@ const getFinalAnalysisInstruction = (analysisContext: string) => [
   'Do not paste the Python code.',
   'Do not repeat auto-generated technical insight bullets verbatim.',
   'Explain the meaningful result, caveats, and chart interpretation briefly.',
-  'Put the exact token {{DEEPCHAT_ANALYSIS_CHART}} where the chart, spreadsheet preview, or generated table should appear in the response. Place it after a natural setup sentence when helpful.',
+  hasRenderableOutput ? 'Put the exact token {{DEEPCHAT_ANALYSIS_CHART}} where the chart, spreadsheet preview, or generated table should appear in the response. Place it after a natural setup sentence when helpful.' : 'Do not include the token {{DEEPCHAT_ANALYSIS_CHART}} because the tool produced text-only analysis without a renderable chart, workbook, preview, or file.',
   'Do not mention PDF. If the result is a spreadsheet, briefly say that an Excel workbook is ready and that the preview can be expanded or downloaded.',
   'If the result is a chart, do not mention downloadable reports or generated file summaries. The chart UI already handles chart download.',
   'Do not mention View Analysis. The interface will place the View Analysis action at the end of the final content.',
@@ -1088,7 +1102,17 @@ const runCodeAnalysisTool = async (task: ChatGenerationTask, latestUserMessage: 
     } catch {
       fallbackText = 'Code execution error. Tool analisis tidak bisa digunakan untuk permintaan ini, jadi file atau visualisasi belum berhasil dibuat.';
     }
-    task.fullContent = [prefaceContent, fallbackText].filter(Boolean).join('\n\n');
+    const errorArtifact: CodeAnalysisResponse = {
+      ...(data || {}),
+      success: false,
+      error: lastError || getAnalysisError(data || {}) || 'Code Execution failed.',
+      execution: {
+        code: data?.execution?.code || code,
+        stdout: data?.execution?.stdout || '',
+        stderr: data?.execution?.stderr || lastError || getAnalysisError(data || {}) || 'Code Execution failed.'
+      }
+    };
+    task.fullContent = [prefaceContent, formatAnalysisMarkdown(fallbackText, errorArtifact)].filter(Boolean).join('\n\n');
     await finishSuccessfulTask(task);
     return;
   }
@@ -1106,12 +1130,13 @@ const runCodeAnalysisTool = async (task: ChatGenerationTask, latestUserMessage: 
   emitSnapshot(task, true);
 
   let finalText = '';
+  const hasRenderableOutput = hasRenderableAnalysisOutput(data);
   try {
-    const finalResult = await streamAnalysisModel(task, formattedMessages, getFinalAnalysisInstruction(compactAnalysisContext(data)), decision.useSearch, { baseContent: prefaceContent });
+    const finalResult = await streamAnalysisModel(task, formattedMessages, getFinalAnalysisInstruction(compactAnalysisContext(data), hasRenderableOutput), decision.useSearch, { baseContent: prefaceContent });
     task.searchSources = finalResult.sources.length ? finalResult.sources : task.searchSources;
     finalText = finalResult.text;
   } catch {
-    finalText = wantsSpreadsheet ? getSpreadsheetFinalText(data) : 'Hasil analisis sudah siap. {{DEEPCHAT_ANALYSIS_CHART}}';
+    finalText = hasRenderableOutput ? wantsSpreadsheet ? getSpreadsheetFinalText(data) : 'Hasil analisis sudah siap. {{DEEPCHAT_ANALYSIS_CHART}}' : 'Hasil analisis selesai, tetapi tidak ada chart, workbook, atau file preview yang perlu ditampilkan.';
   }
   task.fullContent = [prefaceContent, formatAnalysisMarkdown(finalText || 'Here is the analysis.', data)].filter(Boolean).join('\n\n');
   await finishSuccessfulTask(task);
