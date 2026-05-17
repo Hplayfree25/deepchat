@@ -184,7 +184,7 @@ export const updateToolFeatureSettings = (patch: Partial<Pick<ToolSettings, 'sea
   return saveToolSettings({ ...current, ...patch });
 };
 
-const getEnabledSearchRuntimeItems = (settings: ToolSettings): ToolRuntimeItem[] => settings.searchEnabled ? settings.installed.filter(item => item.enabled).map(item => {
+const getInstalledSearchRuntimeItems = (settings: ToolSettings): ToolRuntimeItem[] => settings.installed.filter(item => item.enabled).map(item => {
   const missingEnv = item.env.filter(envKey => !item.config?.[envKey]);
   return {
     toolId: item.toolId,
@@ -197,11 +197,30 @@ const getEnabledSearchRuntimeItems = (settings: ToolSettings): ToolRuntimeItem[]
     configured: missingEnv.length === 0,
     missingEnv
   };
-}) : [];
+});
 
-export const getEnabledToolRuntimeItems = (): ToolRuntimeItem[] => {
+const getDuckDuckGoRuntimeItem = (): ToolRuntimeItem => ({
+  toolId: 'duckduckgo',
+  name: 'DuckDuckGo',
+  description: 'No-key web search option focused on general web results.',
+  category: 'No API Search',
+  env: [],
+  tags: ['no-api', 'privacy', 'search'],
+  config: {},
+  configured: true,
+  missingEnv: []
+});
+
+const getEnabledSearchRuntimeItems = (settings: ToolSettings, requested: boolean): ToolRuntimeItem[] => {
+  if (!settings.searchEnabled && !requested) return [];
+  const installed = getInstalledSearchRuntimeItems(settings);
+  if (installed.length > 0) return installed;
+  return requested ? [getDuckDuckGoRuntimeItem()] : [];
+};
+
+export const getEnabledToolRuntimeItems = (webSearchRequested = false): ToolRuntimeItem[] => {
   const settings = loadToolSettings();
-  const runtimeItems = getEnabledSearchRuntimeItems(settings);
+  const runtimeItems = getEnabledSearchRuntimeItems(settings, webSearchRequested);
   if (settings.urlContextEnabled) {
     runtimeItems.push({
       toolId: 'url-context',

@@ -40,10 +40,19 @@ export interface MCPRuntimeUsageItem {
   details: string;
 }
 
+export interface SearchSource {
+  title: string;
+  url: string;
+  snippet?: string;
+  displayUrl?: string;
+}
+
 const execFileAsync = promisify(execFile);
 const mcpFileRoot = path.join(process.cwd(), 'data', 'mcp-files');
 const MAX_URL_CONTEXT_URLS = 3;
 const MAX_URL_CONTEXT_CHARS = 6000;
+const MAX_SEARCH_RESULTS = 6;
+const MAX_SEARCH_CONTEXT_CHARS = 9000;
 const isRecord = (value: unknown): value is Record<string, unknown> => Boolean(value && typeof value === 'object');
 const asStringArray = (value: unknown) => Array.isArray(value) ? value.filter(item => typeof item === 'string') : [];
 
@@ -357,20 +366,297 @@ const fetchUrlText = async (rawUrl: string, redirects = 0): Promise<{ url: strin
   return { url: response.url || parsed.toString(), text: htmlToText(text).slice(0, MAX_URL_CONTEXT_CHARS) };
 };
 
-export const collectToolRuntimeContext = async (tools: ChatToolRuntimeItem[], latestUserMessage: string) => {
-  if (!tools.some(tool => tool.toolId === 'url-context' && tool.configured)) return '';
-  const urls = extractUrls(latestUserMessage);
-  if (urls.length === 0) return '';
-  const context: string[] = [];
-  for (const url of urls) {
+const decodeHtmlEntities = (value: string) => htmlToText(value);
+
+const getHost = (url: string) => {
+  try {
+    return new URL(url).hostname.replace(/^www\./, '');
+  } catch {
+    return '';
+  }
+};
+
+const truncateText = (value: string, max = 420) => value.replace(/\s+/g, ' ').trim().slice(0, max);
+
+const normalizeSearchSource = (source: Partial<SearchSource>): SearchSource | null => {
+  const url = typeof source.url === 'string' ? source.url.trim() : '';
+  if (!url || !/^https?:\/\//i.test(url)) return null;
+  const title = truncateText(typeof source.title === 'string' && source.title.trim() ? source.title : getHost(url) || url, 120);
+  const snippet = typeof source.snippet === 'string' ? truncateText(source.snippet) : '';
+  return {
+    title,
+    url,
+    snippet,
+    displayUrl: typeof source.displayUrl === 'string' && source.displayUrl.trim() ? truncateText(source.displayUrl, 160) : getHost(url)
+  };
+};
+
+const uniqueSources = (sources: SearchSource[]) => {
+  const seen = new Set<string>();
+  return sources.filter(source => {
+    const key = source.url.replace(/[#?].*$/, '').toLowerCase();
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  }).slice(0, MAX_SEARCH_RESULTS);
+};
+
+const getJson = async (url: string, init?: RequestInit) => {
+  const response = await fetch(url, {
+    ...init,
+    cache: 'no-store',
+    signal: AbortSignal.timeout(10000),
+    headers: {
+      Accept: 'application/json',
+      ...(init?.headers || {})
+    }
+  });
+  if (!response.ok) throw new Error(`Search request failed with ${response.status}`);
+  return response.json() as Promise<unknown>;
+};
+
+const getText = async (url: string, init?: RequestInit) => {
+  const response = await fetch(url, {
+    ...init,
+    cache: 'no-store',
+    signal: AbortSignal.timeout(10000),
+    headers: {
+      Accept: 'text/html, application/xhtml+xml;q=0.9, */*;q=0.1',
+      'User-Agent': 'DeepChat Search',
+      ...(init?.headers || {})
+    }
+  });
+  if (!response.ok) throw new Error(`Search request failed with ${response.status}`);
+  return response.text();
+};
+
+const searchDuckDuckGo = async (query: string) => {
+  const html = await getText(`https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`);
+  const sources: SearchSource[] = [];
+  const resultPattern = /<a[^>]+class="result__a"[^>]+href="([^"]+)"[^>]*>([\s\S]*?)<\/a>[\s\S]*?<a[^>]+class="result__snippet"[^>]*>([\s\S]*?)<\/a>/gi;
+  let match: RegExpExecArray | null;
+  while ((match = resultPattern.exec(html)) && sources.length < MAX_SEARCH_RESULTS) {
+    const rawUrl = decodeHtmlEntities(match[1]);
+    const parsedUrl = rawUrl.includes('/l/?') ? new URL(rawUrl, 'https://duckduckgo.com').searchParams.get('uddg') || rawUrl : rawUrl;
+    const source = normalizeSearchSource({
+      url: parsedUrl,
+      title: decodeHtmlEntities(match[2]),
+      snippet: decodeHtmlEntities(match[3])
+    });
+    if (source) sources.push(source);
+  }
+  return uniqueSources(sources);
+};
+
+const searchWikipedia = async (query: string) => {
+  const data = await getJson(`https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(query)}&format=json&origin=*&srlimit=${MAX_SEARCH_RESULTS}`);
+  const items = isRecord(data) && isRecord(data.query) && Array.isArray(data.query.search) ? data.query.search : [];
+  return uniqueSources(items.map(item => {
+    if (!isRecord(item)) return null;
+    const title = typeof item.title === 'string' ? item.title : '';
+    if (!title) return null;
+    return normalizeSearchSource({
+      title,
+      url: `https://en.wikipedia.org/wiki/${encodeURIComponent(title.replace(/\s+/g, '_'))}`,
+      snippet: typeof item.snippet === 'string' ? item.snippet : ''
+    });
+  }).filter((item): item is SearchSource => Boolean(item)));
+};
+
+const searchBrave = async (query: string, tool: ChatToolRuntimeItem) => {
+  const token = tool.config.BRAVE_API_KEY;
+  if (!token) throw new Error('BRAVE_API_KEY is missing');
+  const data = await getJson(`https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(query)}&count=${MAX_SEARCH_RESULTS}`, {
+    headers: { 'X-Subscription-Token': token }
+  });
+  const results = isRecord(data) && isRecord(data.web) && Array.isArray(data.web.results) ? data.web.results : [];
+  return uniqueSources(results.map(item => isRecord(item) ? normalizeSearchSource({
+    title: typeof item.title === 'string' ? item.title : '',
+    url: typeof item.url === 'string' ? item.url : '',
+    snippet: typeof item.description === 'string' ? item.description : ''
+  }) : null).filter((item): item is SearchSource => Boolean(item)));
+};
+
+const searchTavily = async (query: string, tool: ChatToolRuntimeItem) => {
+  const apiKey = tool.config.TAVILY_API_KEY;
+  if (!apiKey) throw new Error('TAVILY_API_KEY is missing');
+  const data = await getJson('https://api.tavily.com/search', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ api_key: apiKey, query, max_results: MAX_SEARCH_RESULTS, include_answer: false })
+  });
+  const results = isRecord(data) && Array.isArray(data.results) ? data.results : [];
+  return uniqueSources(results.map(item => isRecord(item) ? normalizeSearchSource({
+    title: typeof item.title === 'string' ? item.title : '',
+    url: typeof item.url === 'string' ? item.url : '',
+    snippet: typeof item.content === 'string' ? item.content : ''
+  }) : null).filter((item): item is SearchSource => Boolean(item)));
+};
+
+const searchSerpApi = async (query: string, tool: ChatToolRuntimeItem) => {
+  const apiKey = tool.config.SERPAPI_API_KEY;
+  if (!apiKey) throw new Error('SERPAPI_API_KEY is missing');
+  const data = await getJson(`https://serpapi.com/search.json?q=${encodeURIComponent(query)}&api_key=${encodeURIComponent(apiKey)}&num=${MAX_SEARCH_RESULTS}`);
+  const results = isRecord(data) && Array.isArray(data.organic_results) ? data.organic_results : [];
+  return uniqueSources(results.map(item => isRecord(item) ? normalizeSearchSource({
+    title: typeof item.title === 'string' ? item.title : '',
+    url: typeof item.link === 'string' ? item.link : '',
+    snippet: typeof item.snippet === 'string' ? item.snippet : ''
+  }) : null).filter((item): item is SearchSource => Boolean(item)));
+};
+
+const searchGoogleCustom = async (query: string, tool: ChatToolRuntimeItem) => {
+  const apiKey = tool.config.GOOGLE_SEARCH_API_KEY;
+  const cx = tool.config.GOOGLE_SEARCH_ENGINE_ID;
+  if (!apiKey || !cx) throw new Error('Google Custom Search configuration is missing');
+  const data = await getJson(`https://www.googleapis.com/customsearch/v1?key=${encodeURIComponent(apiKey)}&cx=${encodeURIComponent(cx)}&q=${encodeURIComponent(query)}&num=${MAX_SEARCH_RESULTS}`);
+  const results = isRecord(data) && Array.isArray(data.items) ? data.items : [];
+  return uniqueSources(results.map(item => isRecord(item) ? normalizeSearchSource({
+    title: typeof item.title === 'string' ? item.title : '',
+    url: typeof item.link === 'string' ? item.link : '',
+    snippet: typeof item.snippet === 'string' ? item.snippet : ''
+  }) : null).filter((item): item is SearchSource => Boolean(item)));
+};
+
+const searchExa = async (query: string, tool: ChatToolRuntimeItem) => {
+  const apiKey = tool.config.EXA_API_KEY;
+  if (!apiKey) throw new Error('EXA_API_KEY is missing');
+  const data = await getJson('https://api.exa.ai/search', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey },
+    body: JSON.stringify({ query, numResults: MAX_SEARCH_RESULTS, contents: { text: { maxCharacters: 420 } } })
+  });
+  const results = isRecord(data) && Array.isArray(data.results) ? data.results : [];
+  return uniqueSources(results.map(item => isRecord(item) ? normalizeSearchSource({
+    title: typeof item.title === 'string' ? item.title : '',
+    url: typeof item.url === 'string' ? item.url : '',
+    snippet: typeof item.text === 'string' ? item.text : ''
+  }) : null).filter((item): item is SearchSource => Boolean(item)));
+};
+
+const searchKagi = async (query: string, tool: ChatToolRuntimeItem) => {
+  const apiKey = tool.config.KAGI_API_KEY;
+  if (!apiKey) throw new Error('KAGI_API_KEY is missing');
+  const data = await getJson(`https://kagi.com/api/v0/search?q=${encodeURIComponent(query)}&limit=${MAX_SEARCH_RESULTS}`, {
+    headers: { Authorization: `Bot ${apiKey}` }
+  });
+  const results = isRecord(data) && isRecord(data.data) && Array.isArray(data.data.results) ? data.data.results : Array.isArray((data as Record<string, unknown>)?.data) ? (data as Record<string, unknown>).data as unknown[] : [];
+  return uniqueSources(results.map(item => isRecord(item) ? normalizeSearchSource({
+    title: typeof item.title === 'string' ? item.title : '',
+    url: typeof item.url === 'string' ? item.url : '',
+    snippet: typeof item.snippet === 'string' ? item.snippet : ''
+  }) : null).filter((item): item is SearchSource => Boolean(item)));
+};
+
+const searchLinkup = async (query: string, tool: ChatToolRuntimeItem) => {
+  const apiKey = tool.config.LINKUP_API_KEY;
+  if (!apiKey) throw new Error('LINKUP_API_KEY is missing');
+  const data = await getJson('https://api.linkup.so/v1/search', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+    body: JSON.stringify({ q: query, depth: 'standard', outputType: 'searchResults' })
+  });
+  const results = isRecord(data) && Array.isArray(data.results) ? data.results : [];
+  return uniqueSources(results.map(item => isRecord(item) ? normalizeSearchSource({
+    title: typeof item.name === 'string' ? item.name : typeof item.title === 'string' ? item.title : '',
+    url: typeof item.url === 'string' ? item.url : '',
+    snippet: typeof item.content === 'string' ? item.content : typeof item.snippet === 'string' ? item.snippet : ''
+  }) : null).filter((item): item is SearchSource => Boolean(item)));
+};
+
+const searchOpenAICompatible = async (query: string, tool: ChatToolRuntimeItem) => {
+  const baseUrl = tool.config.OPENAI_COMPATIBLE_SEARCH_BASE_URL?.replace(/\/+$/, '');
+  const apiKey = tool.config.OPENAI_COMPATIBLE_SEARCH_API_KEY;
+  if (!baseUrl || !apiKey) throw new Error('OpenAI compatible search configuration is missing');
+  const data = await getJson(baseUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+    body: JSON.stringify({ query, q: query, limit: MAX_SEARCH_RESULTS, max_results: MAX_SEARCH_RESULTS })
+  });
+  const records = isRecord(data) && Array.isArray(data.results) ? data.results : isRecord(data) && Array.isArray(data.data) ? data.data : [];
+  return uniqueSources(records.map(item => isRecord(item) ? normalizeSearchSource({
+    title: typeof item.title === 'string' ? item.title : typeof item.name === 'string' ? item.name : '',
+    url: typeof item.url === 'string' ? item.url : typeof item.link === 'string' ? item.link : '',
+    snippet: typeof item.snippet === 'string' ? item.snippet : typeof item.content === 'string' ? item.content : ''
+  }) : null).filter((item): item is SearchSource => Boolean(item)));
+};
+
+const searchWithTool = async (query: string, tool: ChatToolRuntimeItem) => {
+  if (tool.toolId === 'brave-search') return searchBrave(query, tool);
+  if (tool.toolId === 'tavily') return searchTavily(query, tool);
+  if (tool.toolId === 'serpapi') return searchSerpApi(query, tool);
+  if (tool.toolId === 'google-custom-search') return searchGoogleCustom(query, tool);
+  if (tool.toolId === 'exa') return searchExa(query, tool);
+  if (tool.toolId === 'kagi') return searchKagi(query, tool);
+  if (tool.toolId === 'linkup') return searchLinkup(query, tool);
+  if (tool.toolId === 'openai-compatible-search') return searchOpenAICompatible(query, tool);
+  if (tool.toolId === 'wikipedia') return searchWikipedia(query);
+  return searchDuckDuckGo(query);
+};
+
+const collectSearchContext = async (tools: ChatToolRuntimeItem[], prompt: string) => {
+  const searchTools = tools.filter(tool => tool.toolId !== 'url-context');
+  if (searchTools.length === 0) return { context: '', sources: [] as SearchSource[] };
+  const runtimePrompt = sanitizeMCPPrompt(prompt).replace(/\s+/g, ' ').trim();
+  if (!runtimePrompt) return { context: '', sources: [] as SearchSource[] };
+  const errors: string[] = [];
+  for (const tool of searchTools) {
+    if (!tool.configured) {
+      errors.push(`${tool.name}: missing ${tool.missingEnv.join(', ') || 'configuration'}`);
+      continue;
+    }
     try {
-      const page = await fetchUrlText(url);
-      if (page.text) context.push(`Source: ${page.url}\n${page.text}`);
+      const sources = await searchWithTool(runtimePrompt, tool);
+      if (sources.length > 0) {
+        const sourceContext = sources.map((source, index) => [
+          `[${index + 1}] ${source.title}`,
+          `URL: ${source.url}`,
+          source.snippet ? `Snippet: ${source.snippet}` : ''
+        ].filter(Boolean).join('\n')).join('\n\n');
+        return {
+          context: [
+            `Web Search Sources from ${tool.name}`,
+            sourceContext,
+            'Use these sources as current external context. Cite source numbers inline when they support factual claims.'
+          ].join('\n\n').slice(0, MAX_SEARCH_CONTEXT_CHARS),
+          sources
+        };
+      }
+      errors.push(`${tool.name}: no results`);
     } catch (error) {
-      context.push(`Source: ${url}\nURL Context error: ${error instanceof Error ? error.message : 'unknown error'}`);
+      errors.push(`${tool.name}: ${error instanceof Error ? error.message : 'unknown error'}`);
     }
   }
-  return context.length > 0 ? `URL Context\n${context.join('\n\n')}` : '';
+  return {
+    context: errors.length > 0 ? `Web Search unavailable\n${errors.join('\n')}` : '',
+    sources: [] as SearchSource[]
+  };
+};
+
+export const collectToolRuntimeContextWithSources = async (tools: ChatToolRuntimeItem[], latestUserMessage: string) => {
+  const context: string[] = [];
+  const search = await collectSearchContext(tools, latestUserMessage);
+  if (search.context) context.push(search.context);
+  const urls = extractUrls(latestUserMessage);
+  if (tools.some(tool => tool.toolId === 'url-context' && tool.configured) && urls.length > 0) {
+    for (const url of urls) {
+      try {
+        const page = await fetchUrlText(url);
+        if (page.text) context.push(`Source: ${page.url}\n${page.text}`);
+      } catch (error) {
+        context.push(`Source: ${url}\nURL Context error: ${error instanceof Error ? error.message : 'unknown error'}`);
+      }
+    }
+  }
+  return {
+    context: context.length > 0 ? context.join('\n\n') : '',
+    sources: search.sources
+  };
+};
+
+export const collectToolRuntimeContext = async (tools: ChatToolRuntimeItem[], latestUserMessage: string) => {
+  const result = await collectToolRuntimeContextWithSources(tools, latestUserMessage);
+  return result.context;
 };
 
 export const buildIntegrationSystemPrompt = (servers: ChatMCPRuntimeServer[], tools: ChatToolRuntimeItem[], context: string) => {
@@ -382,6 +668,6 @@ export const buildIntegrationSystemPrompt = (servers: ChatMCPRuntimeServer[], to
     enabledServers ? `Enabled MCP servers:\n${enabledServers}` : '',
     enabledTools ? `Enabled tools:\n${enabledTools}` : '',
     context ? `Runtime context collected from enabled integrations:\n${context}` : '',
-    'Use configured integrations when they are relevant. If an integration is missing required configuration, ask the user to configure it in Settings before relying on it. Do not reveal secret values.'
+    'Use configured integrations when they are relevant. If web search sources are present, answer directly from them and cite source numbers inline. If an integration is missing required configuration, ask the user to configure it in Settings before relying on it. Do not reveal secret values.'
   ].filter(Boolean).join('\n\n');
 };

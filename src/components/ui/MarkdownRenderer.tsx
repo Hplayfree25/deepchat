@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
@@ -15,9 +15,17 @@ let highlighterPromise: Promise<Highlighter> | null = null;
 interface MarkdownRendererProps {
   content: string;
   isStreaming?: boolean;
+  searchSources?: SearchSource[];
 }
 
-const MarkdownRenderer = React.memo(function MarkdownRenderer({ content, isStreaming = false }: MarkdownRendererProps) {
+interface SearchSource {
+  title: string;
+  url: string;
+  snippet?: string;
+  displayUrl?: string;
+}
+
+const MarkdownRenderer = React.memo(function MarkdownRenderer({ content, isStreaming = false, searchSources = [] }: MarkdownRendererProps) {
   const [highlighter, setHighlighter] = useState<Highlighter | null>(null);
 
   useEffect(() => {
@@ -32,7 +40,12 @@ const MarkdownRenderer = React.memo(function MarkdownRenderer({ content, isStrea
 
   const processedContent = content
     .replace(/\\\[([\s\S]*?)\\\]/g, '$$$$$1$$$$')
-    .replace(/\\\(([\s\S]*?)\\\)/g, '$$$1$$');
+    .replace(/\\\(([\s\S]*?)\\\)/g, '$$$1$$')
+    .replace(/\[([^\[\]\n]{1,64})\](?!\()/g, (match, value) => {
+      const references = getSourceReferences(value, searchSources);
+      if (references.length === 0) return match;
+      return references.map(reference => `[${reference.label}](${formatMarkdownHref(searchSources[reference.index].url)})`).join(' ');
+    });
 
   return (
     <ClientOnly>
@@ -94,6 +107,10 @@ const MarkdownRenderer = React.memo(function MarkdownRenderer({ content, isStrea
               return <td className="p-3 border-b border-slate-100 dark:border-slate-700/50 text-slate-600 dark:text-slate-400">{children}</td>;
             },
             a({ href, children }) {
+              const linkedSource = typeof href === 'string' ? getSourceByUrl(href, searchSources) : null;
+              if (linkedSource && isCitationText(children)) {
+                return <CitationLink source={linkedSource} />;
+              }
               return <a href={href} target="_blank" rel="noopener noreferrer" className="text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 hover:underline font-medium">{children}</a>;
             }
           }}
@@ -104,6 +121,173 @@ const MarkdownRenderer = React.memo(function MarkdownRenderer({ content, isStrea
     </ClientOnly>
   );
 });
+
+function CitationLink({ source }: { source: SearchSource }) {
+  const displayLabel = getCitationLabel(source);
+  const anchorRef = useRef<HTMLAnchorElement | null>(null);
+  const [isOpen, setIsOpen] = useState(false);
+  const [cardStyle, setCardStyle] = useState<React.CSSProperties>({});
+  const updatePosition = () => {
+    const anchor = anchorRef.current;
+    if (!anchor || typeof window === 'undefined') return;
+    const rect = anchor.getBoundingClientRect();
+    const gap = 8;
+    const margin = 12;
+    const cardWidth = Math.min(360, window.innerWidth - margin * 2);
+    const cardHeight = 172;
+    let left = rect.right + gap;
+    let top = rect.top + rect.height / 2 - cardHeight / 2;
+    if (window.innerWidth < 640) {
+      left = rect.left + rect.width / 2 - cardWidth / 2;
+      top = rect.bottom + gap;
+    } else if (left + cardWidth > window.innerWidth - margin) {
+      left = rect.left - cardWidth - gap;
+    }
+    if (left < margin) left = margin;
+    if (left + cardWidth > window.innerWidth - margin) left = window.innerWidth - cardWidth - margin;
+    if (top < margin) top = margin;
+    if (top + cardHeight > window.innerHeight - margin) top = Math.max(margin, window.innerHeight - cardHeight - margin);
+    setCardStyle({
+      left,
+      top,
+      width: cardWidth
+    });
+  };
+  const openCard = () => {
+    updatePosition();
+    setIsOpen(true);
+  };
+  const closeCard = () => setIsOpen(false);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    updatePosition();
+    window.addEventListener('resize', updatePosition);
+    window.addEventListener('scroll', updatePosition, true);
+    return () => {
+      window.removeEventListener('resize', updatePosition);
+      window.removeEventListener('scroll', updatePosition, true);
+    };
+  }, [isOpen]);
+
+  return (
+    <span className="not-prose relative mx-1 inline-flex align-baseline">
+      <a
+        ref={anchorRef}
+        href={source.url}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="inline-flex h-5 max-w-32 items-center justify-center rounded-full !bg-slate-100 px-2 !text-[11px] font-bold leading-none !text-slate-500 !no-underline ring-1 ring-slate-200 transition duration-150 ease-out hover:!bg-slate-200 hover:!text-slate-800 dark:!bg-slate-800 dark:!text-slate-300 dark:ring-slate-700 dark:hover:!bg-slate-700 dark:hover:!text-slate-100"
+        aria-label={`Source: ${source.title}`}
+        onMouseEnter={openCard}
+        onMouseLeave={closeCard}
+        onFocus={openCard}
+        onBlur={closeCard}
+      >
+        <span className="truncate">{displayLabel}</span>
+      </a>
+      <span
+        style={cardStyle}
+        className={`pointer-events-none fixed z-50 overflow-hidden rounded-2xl border border-slate-200 bg-white text-left shadow-xl shadow-slate-900/12 transition duration-150 ease-out dark:border-slate-700 dark:bg-slate-950 ${isOpen ? 'translate-x-0 scale-100 opacity-100' : '-translate-x-1 scale-95 opacity-0'}`}
+      >
+        <span className="flex items-center gap-2 border-b border-slate-100 px-3 py-2 dark:border-slate-800">
+          <span className="flex h-6 w-6 shrink-0 items-center justify-center overflow-hidden rounded-full bg-slate-50 ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-700">
+            <img src={getFaviconUrl(source)} alt="" className="h-4 w-4 rounded-sm" loading="lazy" />
+          </span>
+          <span className="block min-w-0 truncate text-xs font-semibold text-slate-600 dark:text-slate-300">{source.displayUrl || getSourceHost(source.url)}</span>
+        </span>
+        <span className="block px-3 pt-3 text-sm font-extrabold leading-snug text-slate-900 dark:text-slate-100">{source.title}</span>
+        {source.snippet && (
+          <span className="block px-3 pb-3 pt-2 text-xs font-medium leading-relaxed text-slate-600 dark:text-slate-300">{source.snippet}</span>
+        )}
+      </span>
+    </span>
+  );
+}
+
+function getSourceReferences(label: string, sources: SearchSource[]) {
+  const tokens = label.split(/[,;]+/).map(item => item.trim()).filter(Boolean);
+  const candidates = tokens.length > 1 ? tokens : [label.trim()];
+  const references = candidates.map(candidate => {
+    const index = getSourceIndex(candidate, sources);
+    if (index < 0) return null;
+    return {
+      index,
+      label: getCitationLabel(sources[index])
+    };
+  }).filter((item): item is { index: number; label: string } => Boolean(item));
+  const seen = new Set<number>();
+  return references.filter(reference => {
+    if (seen.has(reference.index)) return false;
+    seen.add(reference.index);
+    return true;
+  });
+}
+
+function getSourceIndex(label: string, sources: SearchSource[]) {
+  const normalized = normalizeCitationText(label);
+  const numeric = Number(normalized);
+  if (Number.isInteger(numeric) && numeric >= 1 && numeric <= sources.length) return numeric - 1;
+  return sources.findIndex(source => {
+    const sourceValues = [
+      source.title,
+      source.displayUrl,
+      getSourceHost(source.url),
+      getSourceHost(source.url).split('.')[0]
+    ].filter((value): value is string => typeof value === 'string' && value.length > 0).map(normalizeCitationText).filter(Boolean);
+    return sourceValues.some(value => value === normalized || value.includes(normalized) || normalized.includes(value));
+  });
+}
+
+function getSourceByUrl(url: string, sources: SearchSource[]) {
+  const normalized = normalizeUrl(url);
+  return sources.find(source => normalizeUrl(source.url) === normalized) || null;
+}
+
+function formatMarkdownHref(url: string) {
+  return url.replace(/\(/g, '%28').replace(/\)/g, '%29').replace(/\s/g, '%20');
+}
+
+function normalizeUrl(url: string) {
+  try {
+    const parsed = new URL(url);
+    parsed.hash = '';
+    parsed.search = '';
+    return parsed.toString().replace(/\/$/, '').toLowerCase();
+  } catch {
+    return url.replace(/[#?].*$/, '').replace(/\/$/, '').toLowerCase();
+  }
+}
+
+function isCitationText(children: React.ReactNode) {
+  const text = getChildrenText(children);
+  return /^[\[\](),;\s0-9a-zA-Z.-]{1,64}$/.test(text);
+}
+
+function getChildrenText(children: React.ReactNode) {
+  return React.Children.toArray(children).map(item => typeof item === 'string' || typeof item === 'number' ? String(item) : '').join('').trim();
+}
+
+function getCitationLabel(source: SearchSource) {
+  return source.displayUrl || getSourceHost(source.url) || source.title || 'source';
+}
+
+function normalizeCitationText(value: string) {
+  return value.toLowerCase().replace(/^www\./, '').replace(/\.(com|co\.id|id|net|org|io)$/i, '').replace(/[^a-z0-9]+/g, '');
+}
+
+function getFaviconUrl(source: SearchSource) {
+  const host = getSourceHost(source.url);
+  return `https://www.google.com/s2/favicons?domain=${encodeURIComponent(host)}&sz=32`;
+}
+
+function getSourceHost(url: string) {
+  try {
+    return new URL(url).hostname.replace(/^www\./, '');
+  } catch {
+    return url;
+  }
+}
 
 function CodeBlock({ language, value, highlighter, isStreaming }: { language: string, value: string, highlighter: Highlighter | null, isStreaming: boolean }) {
   return <CodePreview language={language} value={value} highlighter={highlighter} isStreaming={isStreaming} />;

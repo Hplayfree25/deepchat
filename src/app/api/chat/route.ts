@@ -23,10 +23,11 @@ import { logAiExchange, streamWithAiLog } from '@/lib/ai-logs';
 import {
   buildIntegrationSystemPrompt,
   collectMCPRuntimeContextWithUsage,
-  collectToolRuntimeContext,
+  collectToolRuntimeContextWithSources,
   getMCPRuntimeCandidateServers,
   normalizeChatMCPServers,
   normalizeChatTools,
+  type SearchSource,
   type MCPRuntimeUsageItem
 } from '@/lib/mcp-runtime';
 import { buildClarificationInstruction, parseAgentClarification } from '@/lib/agent-clarification';
@@ -213,6 +214,14 @@ const getMCPStreamEvents = (usage: MCPRuntimeUsageItem[]) => {
     status: item.status,
     details: item.details
   }));
+};
+
+const getSearchSourceEvents = (sources: SearchSource[]) => {
+  if (sources.length === 0) return [];
+  return [{
+    type: 'deepchat_sources',
+    sources
+  }];
 };
 
 const getMCPWorkingEvents = (servers: { serverId: string; name: string }[]) => {
@@ -730,8 +739,8 @@ const createAgenticMCPResponse = (requestUrl: string, provider: string, payload:
           controller.enqueue(encoder.encode(sse(event)));
         }
         const mcpRuntimeResult = await collectMCPRuntimeContextWithUsage(candidateServers, latestUserMessage);
-        const toolRuntimeContext = await collectToolRuntimeContext(tools, latestUserMessage);
-        const runtimeContext = [mcpRuntimeResult.context, toolRuntimeContext].filter(Boolean).join('\n\n');
+        const toolRuntimeResult = await collectToolRuntimeContextWithSources(tools, latestUserMessage);
+        const runtimeContext = [mcpRuntimeResult.context, toolRuntimeResult.context].filter(Boolean).join('\n\n');
         const finalMessages = withSystemInstruction(originalMessages, [
           'Continue after MCP usage.',
           'Use the MCP runtime context below as the authoritative external context for the final answer.',
@@ -739,6 +748,9 @@ const createAgenticMCPResponse = (requestUrl: string, provider: string, payload:
           runtimeContext
         ].filter(Boolean).join('\n\n'));
         for (const event of getMCPStreamEvents(mcpRuntimeResult.usage)) {
+          controller.enqueue(encoder.encode(sse(event)));
+        }
+        for (const event of getSearchSourceEvents(toolRuntimeResult.sources)) {
           controller.enqueue(encoder.encode(sse(event)));
         }
         await pipeSseResponse(controller, await callDirect(finalMessages));
@@ -791,9 +803,9 @@ export async function POST(req: Request) {
 
     const mcpRuntimeResult = skipRuntimeIntegrations ? { context: '', usage: [] } : await collectMCPRuntimeContextWithUsage(runtimeMCPServers, latestUserMessage);
     const mcpRuntimeContext = mcpRuntimeResult.context;
-    const toolRuntimeContext = skipRuntimeIntegrations ? '' : await collectToolRuntimeContext(runtimeTools, latestUserMessage);
-    const runtimeContext = [mcpRuntimeContext, toolRuntimeContext].filter(Boolean).join('\n\n');
-    const integrationEvents = getMCPStreamEvents(mcpRuntimeResult.usage);
+    const toolRuntimeResult = skipRuntimeIntegrations ? { context: '', sources: [] as SearchSource[] } : await collectToolRuntimeContextWithSources(runtimeTools, latestUserMessage);
+    const runtimeContext = [mcpRuntimeContext, toolRuntimeResult.context].filter(Boolean).join('\n\n');
+    const integrationEvents = [...getMCPStreamEvents(mcpRuntimeResult.usage), ...getSearchSourceEvents(toolRuntimeResult.sources)];
     const usedMCPIds = new Set(mcpRuntimeResult.usage.map(item => item.id));
     const promptMCPServers = runtimeMCPServers.filter(server => usedMCPIds.has(server.serverId));
 

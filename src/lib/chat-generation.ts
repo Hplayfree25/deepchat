@@ -6,6 +6,13 @@ import { publishDeepChatNotification } from '@/lib/notification-settings';
 import { getEnabledToolRuntimeItems } from '@/lib/tool-settings';
 import { parseAgentClarification, parseGeneratedClarificationAnswerContent, type AgentClarification } from '@/lib/agent-clarification';
 
+interface SearchSource {
+  title: string;
+  url: string;
+  snippet?: string;
+  displayUrl?: string;
+}
+
 interface MemoryApiMessage {
   id?: string;
   role: string;
@@ -23,6 +30,7 @@ interface ChatApiMessage {
   role: string;
   content?: string;
   attachedFiles?: unknown;
+  webSearchEnabled?: boolean;
   [key: string]: unknown;
 }
 
@@ -33,6 +41,7 @@ interface ChatMessageVersion {
   mcpNotice?: string;
   mcpUsage?: MCPUsageItem[];
   mcpContentOffset?: number;
+  searchSources?: SearchSource[];
   clarification?: AgentClarification;
   versionIndex?: number;
   [key: string]: unknown;
@@ -51,6 +60,7 @@ interface StoredChatMessage extends MemoryAssistantMessage {
   mcpNotice?: string;
   mcpUsage?: MCPUsageItem[];
   mcpContentOffset?: number;
+  searchSources?: SearchSource[];
   clarification?: AgentClarification;
   versions?: ChatMessageVersion[];
   currentVersionIndex?: number;
@@ -72,6 +82,7 @@ export interface ChatGenerationSnapshot {
   mcpNotice?: string;
   mcpUsage: MCPUsageItem[];
   mcpContentOffset?: number;
+  searchSources: SearchSource[];
   clarification?: AgentClarification;
   isStreaming: boolean;
   isError?: boolean;
@@ -90,6 +101,7 @@ interface ChatGenerationTask {
   mcpNotice?: string;
   mcpUsage: MCPUsageItem[];
   mcpContentOffset?: number;
+  searchSources: SearchSource[];
   clarification?: AgentClarification;
   startedAt: number;
   reasoningEndTime: number;
@@ -145,6 +157,7 @@ const getSnapshot = (task: ChatGenerationTask): ChatGenerationSnapshot => ({
   mcpNotice: task.mcpNotice,
   mcpUsage: task.mcpUsage,
   mcpContentOffset: task.mcpContentOffset,
+  searchSources: task.searchSources,
   clarification: task.clarification,
   isStreaming: task.status === 'running',
   isError: task.status === 'error',
@@ -191,7 +204,7 @@ const formatMessages = (apiMessages: ChatApiMessage[]) => {
   const sanitizeContent = (content?: string) => parseAgentClarification(content || '').visibleContent;
   const latestRealUser = (items: ChatApiMessage[]) => [...items].reverse().find(item => item.role === 'user' && !parseGeneratedClarificationAnswerContent(item.content));
   if (apiMessages.length <= 1) {
-    return apiMessages.map(m => ({ role: m.role, content: sanitizeContent(m.content), attachedFiles: m.attachedFiles }));
+    return apiMessages.map(m => ({ role: m.role, content: sanitizeContent(m.content), attachedFiles: m.attachedFiles, webSearchEnabled: m.webSearchEnabled }));
   }
 
   const history = apiMessages.slice(0, -1);
@@ -216,7 +229,7 @@ const formatMessages = (apiMessages: ChatApiMessage[]) => {
 
   return [
     { role: 'system', content: sysContent },
-    { role: 'user', content: sanitizeContent(lastMsg.content), attachedFiles: lastMsg.attachedFiles, runtimePromptContent }
+    { role: 'user', content: sanitizeContent(lastMsg.content), attachedFiles: lastMsg.attachedFiles, webSearchEnabled: lastMsg.webSearchEnabled, runtimePromptContent }
   ];
 };
 
@@ -225,7 +238,7 @@ const getSelectedConnection = (): SelectedModelConnection | null => {
   return selectedModelStr ? JSON.parse(selectedModelStr) : null;
 };
 
-const updateMessageVersion = (message: StoredChatMessage, content: string, reasoning: string, reasoningDuration?: number, mcpNotice?: string, mcpUsage: MCPUsageItem[] = [], mcpContentOffset?: number, clarification?: AgentClarification) => {
+const updateMessageVersion = (message: StoredChatMessage, content: string, reasoning: string, reasoningDuration?: number, mcpNotice?: string, mcpUsage: MCPUsageItem[] = [], mcpContentOffset?: number, searchSources: SearchSource[] = [], clarification?: AgentClarification) => {
   const updated = {
     ...message,
     content,
@@ -234,6 +247,7 @@ const updateMessageVersion = (message: StoredChatMessage, content: string, reaso
     mcpNotice,
     mcpUsage,
     mcpContentOffset,
+    searchSources,
     clarification
   };
 
@@ -247,6 +261,7 @@ const updateMessageVersion = (message: StoredChatMessage, content: string, reaso
       mcpNotice,
       mcpUsage,
       mcpContentOffset,
+      searchSources,
       clarification
     };
   }
@@ -268,7 +283,7 @@ const saveFinalMessage = async (task: ChatGenerationTask, options: { isError?: b
   const clarification = task.clarification || parsedContent.clarification;
   const content = options.errorMessage || parsedContent.visibleContent || (options.isStopped ? 'Generation stopped.' : '');
   const finalMessage = {
-    ...updateMessageVersion(currentMsg, content, task.fullReasoning, getDuration(task), task.mcpNotice, task.mcpUsage, task.mcpContentOffset, clarification),
+    ...updateMessageVersion(currentMsg, content, task.fullReasoning, getDuration(task), task.mcpNotice, task.mcpUsage, task.mcpContentOffset, task.searchSources, clarification),
     isStreaming: false,
     isError: options.isError === true,
     isStopped: options.isStopped === true
@@ -388,6 +403,23 @@ const normalizeMCPUsageEvent = (json: Record<string, unknown>): MCPUsageItem | n
     status,
     details: getString(json.details)
   };
+};
+
+const normalizeSearchSources = (value: unknown): SearchSource[] => {
+  if (!Array.isArray(value)) return [];
+  const sources = value.map((item): SearchSource | null => {
+    if (!isRecord(item)) return null;
+    const title = getString(item.title);
+    const url = getString(item.url);
+    if (!url) return null;
+    return {
+      title: title || url,
+      url,
+      snippet: getString(item.snippet),
+      displayUrl: getString(item.displayUrl)
+    };
+  }).filter((item): item is SearchSource => Boolean(item));
+  return sources;
 };
 
 const applyMCPUsageEvent = (task: ChatGenerationTask, event: MCPUsageItem) => {
@@ -534,6 +566,12 @@ const consumeStream = async (task: ChatGenerationTask, res: Response) => {
         continue;
       }
 
+      if (json.type === 'deepchat_sources') {
+        task.searchSources = normalizeSearchSources(json.sources);
+        emitSnapshot(task, true);
+        continue;
+      }
+
       if (provider === 'anthropic') {
         const delta = isRecord(json.delta) ? json.delta : null;
         if (json.type === 'content_block_delta') {
@@ -566,6 +604,7 @@ const consumeStream = async (task: ChatGenerationTask, res: Response) => {
 const runTask = async (task: ChatGenerationTask) => {
   try {
     const formattedMessages = formatMessages(task.apiMessages);
+    const latestUserMessage = [...task.apiMessages].reverse().find(message => message.role === 'user');
     const res = await fetch('/api/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -574,7 +613,7 @@ const runTask = async (task: ChatGenerationTask) => {
         connectionId: task.connection?.connectionId,
         modelId: task.connection?.id,
         mcpServers: getEnabledMCPRuntimeServers(),
-        tools: getEnabledToolRuntimeItems()
+        tools: getEnabledToolRuntimeItems(latestUserMessage?.webSearchEnabled === true)
       }),
       signal: task.controller.signal
     });
@@ -613,6 +652,7 @@ export const startChatGeneration = (chatId: string, apiMessages: ChatApiMessage[
     fullReasoning: '',
     mcpUsage: [],
     mcpContentOffset: undefined,
+    searchSources: [],
     clarification: undefined,
     startedAt: Date.now(),
     reasoningEndTime: Date.now(),

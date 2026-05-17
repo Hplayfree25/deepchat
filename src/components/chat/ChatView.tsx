@@ -32,6 +32,13 @@ type AttachedFile = {
   ext: string;
 };
 
+type SearchSource = {
+  title: string;
+  url: string;
+  snippet?: string;
+  displayUrl?: string;
+};
+
 type MessageVersion = {
   content?: string;
   reasoning?: string;
@@ -39,6 +46,7 @@ type MessageVersion = {
   mcpNotice?: string;
   mcpUsage?: MCPUsageItem[];
   mcpContentOffset?: number;
+  searchSources?: SearchSource[];
   clarification?: AgentClarification;
   clarificationAnswer?: AgentClarificationAnswer;
   versionIndex?: number;
@@ -54,12 +62,14 @@ type ChatMessage = {
   mcpNotice?: string;
   mcpUsage?: MCPUsageItem[];
   mcpContentOffset?: number;
+  searchSources?: SearchSource[];
   clarification?: AgentClarification;
   clarificationAnswer?: AgentClarificationAnswer;
   versions?: MessageVersion[];
   currentVersionIndex?: number;
   chatIndex?: number;
   attachedFiles?: AttachedFile[];
+  webSearchEnabled?: boolean;
   createdAt?: string;
   isStreaming?: boolean;
   isError?: boolean;
@@ -108,6 +118,7 @@ const normalizeMessageForDisplay = (message: ChatMessage) => {
     mcpNotice: currentVersion?.mcpNotice ?? message.mcpNotice,
     mcpUsage: currentVersion?.mcpUsage ?? message.mcpUsage,
     mcpContentOffset: currentVersion?.mcpContentOffset ?? message.mcpContentOffset,
+    searchSources: currentVersion?.searchSources ?? message.searchSources,
     clarification: currentVersion?.clarification ?? message.clarification ?? parsedVersion.clarification,
     clarificationAnswer: currentVersion?.clarificationAnswer ?? message.clarificationAnswer,
     isStreaming: false
@@ -126,6 +137,7 @@ const mergeGenerationSnapshot = (items: ChatMessage[], snapshot: ChatGenerationS
     mcpNotice: snapshot.mcpNotice,
     mcpUsage: snapshot.mcpUsage,
     mcpContentOffset: snapshot.mcpContentOffset,
+    searchSources: snapshot.searchSources,
     clarification: snapshot.clarification || parsedSnapshot.clarification,
     clarificationAnswer: m.clarificationAnswer,
     isStreaming: snapshot.isStreaming,
@@ -143,6 +155,7 @@ const mergeGenerationSnapshot = (items: ChatMessage[], snapshot: ChatGenerationS
       mcpNotice: snapshot.mcpNotice,
       mcpUsage: snapshot.mcpUsage,
       mcpContentOffset: snapshot.mcpContentOffset,
+      searchSources: snapshot.searchSources,
       clarification: snapshot.clarification || parsedSnapshot.clarification,
       clarificationAnswer: updated.versions[updated.currentVersionIndex]?.clarificationAnswer
     };
@@ -162,12 +175,13 @@ export default function ChatView({ chatId }: { chatId: string }) {
   const [isLoading, setIsLoading] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>([]);
+  const [webSearchEnabled, setWebSearchEnabled] = useState(false);
   const [userProfile, setUserProfile] = useState<UserProfile>({ name: 'Guest', avatar: DEFAULT_USER_AVATAR });
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const dotsContainerRef = useRef<HTMLDivElement>(null);
   const initialMsgProcessed = useRef(false);
   const messagesRef = useRef(messages);
-  const sendMessageRef = useRef<((text: string, overrideFiles?: AttachedFile[]) => void | Promise<void>) | null>(null);
+  const sendMessageRef = useRef<((text: string, overrideFiles?: AttachedFile[], overrideWebSearch?: boolean) => void | Promise<void>) | null>(null);
   const [activeUserMsgId, setActiveUserMsgId] = useState<string | null>(null);
   const observerRef = useRef<IntersectionObserver | null>(null);
 
@@ -241,6 +255,7 @@ export default function ChatView({ chatId }: { chatId: string }) {
       const urlParams = new URLSearchParams(window.location.search);
       const initialMsg = urlParams.get('msg');
       const draftMsg = urlParams.get('draft');
+      const initialWebSearch = urlParams.get('web') === '1';
 
       if (!mounted) return;
 
@@ -262,7 +277,7 @@ export default function ChatView({ chatId }: { chatId: string }) {
 
         if (!chat || !chat.messages || chat.messages.length === 0) {
           setTimeout(() => {
-            if (mounted) void sendMessageRef.current?.(initialMsg, chat?.pendingAttachedFiles);
+            if (mounted) void sendMessageRef.current?.(initialMsg, chat?.pendingAttachedFiles, initialWebSearch);
           }, 0);
         } else {
           setMessages(mergeActiveGeneration(chatId, chat.messages.map(normalizeMessageForDisplay)));
@@ -350,8 +365,9 @@ export default function ChatView({ chatId }: { chatId: string }) {
     };
   }, [chatId]);
 
-  const sendMessage = useCallback(async (text: string, overrideFiles?: AttachedFile[]) => {
+  const sendMessage = useCallback(async (text: string, overrideFiles?: AttachedFile[], overrideWebSearch?: boolean) => {
     const filesToUse = overrideFiles || attachedFiles;
+    const useWebSearch = typeof overrideWebSearch === 'boolean' ? overrideWebSearch : webSearchEnabled;
     if ((!text.trim() && filesToUse.length === 0) || isLoading) return;
 
     const userMessage = {
@@ -359,6 +375,7 @@ export default function ChatView({ chatId }: { chatId: string }) {
       role: 'user',
       content: text.trim(),
       attachedFiles: filesToUse.length > 0 ? [...filesToUse] : undefined,
+      webSearchEnabled: useWebSearch,
       createdAt: new Date().toISOString(),
       chatIndex: messagesRef.current.length
     };
@@ -371,6 +388,7 @@ export default function ChatView({ chatId }: { chatId: string }) {
       reasoning: '',
       mcpUsage: [],
       mcpContentOffset: undefined,
+      searchSources: [],
       clarification: undefined,
       createdAt: new Date().toISOString(),
       isStreaming: true,
@@ -380,6 +398,7 @@ export default function ChatView({ chatId }: { chatId: string }) {
     setMessages(prev => [...prev, userMessage, assistantMessage]);
     setInput('');
     setAttachedFiles([]);
+    setWebSearchEnabled(false);
     localStorage.removeItem(`deepchat-draft-${chatId}`);
 
     await saveMessage(chatId, userMessage);
@@ -391,7 +410,7 @@ export default function ChatView({ chatId }: { chatId: string }) {
 
     const snapshot = startChatGeneration(chatId, apiMessages, assistantMsgId);
     applyGenerationSnapshot(snapshot);
-  }, [applyGenerationSnapshot, attachedFiles, chatId, isLoading]);
+  }, [applyGenerationSnapshot, attachedFiles, chatId, isLoading, webSearchEnabled]);
 
   useEffect(() => {
     sendMessageRef.current = sendMessage;
@@ -415,6 +434,7 @@ export default function ChatView({ chatId }: { chatId: string }) {
       mcpNotice: assistantMsg.mcpNotice,
       mcpUsage: assistantMsg.mcpUsage,
       mcpContentOffset: assistantMsg.mcpContentOffset,
+      searchSources: assistantMsg.searchSources,
       clarification: assistantMsg.clarification,
       clarificationAnswer: assistantMsg.clarificationAnswer
     }]);
@@ -430,6 +450,7 @@ export default function ChatView({ chatId }: { chatId: string }) {
       mcpNotice: undefined,
       mcpUsage: [],
       mcpContentOffset: undefined,
+      searchSources: [],
       clarification: undefined,
       clarificationAnswer: undefined,
       reasoningDuration: undefined,
@@ -483,6 +504,7 @@ export default function ChatView({ chatId }: { chatId: string }) {
         mcpNotice: undefined,
         mcpUsage: [],
         mcpContentOffset: undefined,
+        searchSources: [],
         clarification: undefined,
         clarificationAnswer: undefined,
         reasoningDuration: undefined,
@@ -503,6 +525,7 @@ export default function ChatView({ chatId }: { chatId: string }) {
         reasoning: '',
         mcpUsage: [],
         mcpContentOffset: undefined,
+        searchSources: [],
         clarification: undefined,
         clarificationAnswer: undefined,
         createdAt: new Date().toISOString(),
@@ -547,6 +570,7 @@ export default function ChatView({ chatId }: { chatId: string }) {
       mcpNotice: version.mcpNotice,
       mcpUsage: version.mcpUsage,
       mcpContentOffset: version.mcpContentOffset,
+      searchSources: version.searchSources,
       clarification: version.clarification,
       clarificationAnswer: version.clarificationAnswer,
       isError: false
@@ -593,6 +617,7 @@ export default function ChatView({ chatId }: { chatId: string }) {
       mcpNotice: undefined,
       mcpUsage: [],
       mcpContentOffset: undefined,
+      searchSources: [],
       clarification: undefined,
       clarificationAnswer: answer,
       versions,
@@ -704,10 +729,12 @@ export default function ChatView({ chatId }: { chatId: string }) {
               attachedFiles={attachedFiles}
               isUploading={isUploading}
               isBusy={isLoading}
+              webSearchEnabled={webSearchEnabled}
               maxTextareaHeight={256}
               onChange={setInput}
               onSubmit={(value) => sendMessage(value)}
               onStop={handleStopGeneration}
+              onToggleWebSearch={setWebSearchEnabled}
               onFilesUpload={handleFilesUpload}
               onRemoveFile={(index) => setAttachedFiles(prev => prev.filter((_, itemIndex) => itemIndex !== index))}
             />
@@ -1021,7 +1048,7 @@ const MessageBubble = React.memo(function MessageBubble({ message, userAvatar, u
 
         {!isUser && preMCPContent && (
           <div className="mb-3 max-w-full rounded-2xl rounded-tl-sm border border-slate-200 bg-white px-4 py-3 text-slate-800 shadow-sm sm:px-5">
-            <MarkdownRenderer content={preMCPContent} isStreaming={message.isStreaming && !postMCPContent} />
+            <MarkdownRenderer content={preMCPContent} isStreaming={message.isStreaming && !postMCPContent} searchSources={message.searchSources} />
           </div>
         )}
 
@@ -1089,7 +1116,7 @@ const MessageBubble = React.memo(function MessageBubble({ message, userAvatar, u
                 {message.content}
               </div>
             ) : (
-              <MarkdownRenderer content={postMCPContent || standardContent || ''} isStreaming={message.isStreaming} />
+              <MarkdownRenderer content={postMCPContent || standardContent || ''} isStreaming={message.isStreaming} searchSources={message.searchSources} />
             )}
           </div>
         ) : message.isStreaming && !message.reasoning && (

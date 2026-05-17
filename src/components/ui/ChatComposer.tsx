@@ -30,11 +30,13 @@ interface ChatComposerProps {
   attachedFiles: ComposerFile[];
   isUploading?: boolean;
   isBusy?: boolean;
+  webSearchEnabled?: boolean;
   placeholder?: string;
   maxTextareaHeight?: number;
   onChange: (value: string) => void;
   onSubmit: (value: string) => void;
   onStop?: () => void;
+  onToggleWebSearch?: (enabled: boolean) => void;
   onFilesUpload: (files: File[]) => void;
   onRemoveFile: (index: number) => void;
 }
@@ -80,11 +82,13 @@ export default function ChatComposer({
   attachedFiles,
   isUploading = false,
   isBusy = false,
+  webSearchEnabled = false,
   placeholder = 'Message DeepChat...',
   maxTextareaHeight = 192,
   onChange,
   onSubmit,
   onStop,
+  onToggleWebSearch,
   onFilesUpload,
   onRemoveFile
 }: ChatComposerProps) {
@@ -283,7 +287,7 @@ export default function ChatComposer({
             <IconButton label="Attach files" disabled={isUploading} onClick={() => fileInputRef.current?.click()}>
               <Paperclip className="h-5 w-5" />
             </IconButton>
-            <IconButton label="Web">
+            <IconButton label={webSearchEnabled ? 'Search on' : 'Search'} active={webSearchEnabled} onClick={() => onToggleWebSearch?.(!webSearchEnabled)}>
               <Globe className="h-5 w-5" />
             </IconButton>
             <div className="min-w-0">
@@ -322,15 +326,16 @@ export default function ChatComposer({
   );
 }
 
-function IconButton({ children, disabled, label, onClick }: { children: React.ReactNode; disabled?: boolean; label: string; onClick?: () => void }) {
+function IconButton({ children, disabled, label, active, onClick }: { children: React.ReactNode; disabled?: boolean; label: string; active?: boolean; onClick?: () => void }) {
   return (
     <button
       type="button"
       disabled={disabled}
       onClick={onClick}
-      className="flex h-9 w-9 items-center justify-center rounded-full text-slate-400 transition-all hover:bg-slate-100 hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-50 sm:h-10 sm:w-10 dark:text-slate-500 dark:hover:bg-slate-800 dark:hover:text-slate-100"
+      className={`flex h-9 w-9 items-center justify-center rounded-full transition-all disabled:cursor-not-allowed disabled:opacity-50 sm:h-10 sm:w-10 ${active ? 'bg-emerald-50 text-emerald-600 ring-1 ring-emerald-200 hover:bg-emerald-100 dark:bg-emerald-500/15 dark:text-emerald-300 dark:ring-emerald-500/30' : 'text-slate-400 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-500 dark:hover:bg-slate-800 dark:hover:text-slate-100'}`}
       aria-label={label}
       title={label}
+      aria-pressed={active}
     >
       {children}
     </button>

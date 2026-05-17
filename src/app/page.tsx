@@ -81,6 +81,7 @@ export default function WelcomePage() {
   const [isUploading, setIsUploading] = useState(false);
   const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>([]);
   const [recentFiles, setRecentFiles] = useState<RecentFile[]>([]);
+  const [webSearchEnabled, setWebSearchEnabled] = useState(false);
 
   useEffect(() => {
     localStorage.setItem('deepchat-draft-new', input);
@@ -147,11 +148,12 @@ export default function WelcomePage() {
     setIsUploading(false);
   };
 
-  const startChat = async (inputMsg?: string, files: AttachedFile[] = attachedFiles) => {
+  const startChat = async (inputMsg?: string, files: AttachedFile[] = attachedFiles, useWebSearch = webSearchEnabled) => {
     localStorage.removeItem('deepchat-draft-new');
     const id = await createChat('New Chat', files);
     const query = new URLSearchParams();
     if (inputMsg || files.length > 0) query.set('msg', inputMsg || '');
+    if (useWebSearch) query.set('web', '1');
     const qString = query.toString();
     router.push(`/chat/${id}${qString ? `?${qString}` : ''}`);
   };
@@ -260,8 +262,10 @@ export default function WelcomePage() {
             value={input}
             attachedFiles={attachedFiles}
             isUploading={isUploading}
+            webSearchEnabled={webSearchEnabled}
             onChange={setInput}
             onSubmit={(value) => startChat(value)}
+            onToggleWebSearch={setWebSearchEnabled}
             onFilesUpload={handleFilesUpload}
             onRemoveFile={(index) => setAttachedFiles(prev => prev.filter((_, itemIndex) => itemIndex !== index))}
           />
