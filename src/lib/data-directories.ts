@@ -9,8 +9,6 @@ export const LLM_DIR = path.join(DATA_DIR, 'llm');
 export const LLM_API_DIR = path.join(LLM_DIR, 'api');
 export const TEMP_DIR = path.join(DATA_DIR, 'temp');
 export const TEMP_FILE_DIR = path.join(TEMP_DIR, 'file');
-export const RUNTIME_DIR = path.join(DATA_DIR, 'runtime');
-export const PYTHON_RUNTIME_DIR = path.join(RUNTIME_DIR, 'python');
 export const USER_DIR = path.join(DATA_DIR, 'user');
 export const MEMORY_DIR = path.join(USER_DIR, 'memories');
 export const BACKUP_DIR = path.join(DATA_DIR, 'backups');
@@ -23,8 +21,6 @@ const DATA_DIRECTORIES = [
   LLM_API_DIR,
   TEMP_DIR,
   TEMP_FILE_DIR,
-  RUNTIME_DIR,
-  PYTHON_RUNTIME_DIR,
   USER_DIR,
   MEMORY_DIR,
   BACKUP_DIR

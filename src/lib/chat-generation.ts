@@ -749,7 +749,7 @@ const stripAnalysisStreamingTokens = (text: string) => {
   return clean;
 };
 
-const streamAnalysisModel = async (task: ChatGenerationTask, messages: ChatApiMessage[], instruction: string, useSearch: boolean) => {
+const streamAnalysisModel = async (task: ChatGenerationTask, messages: ChatApiMessage[], instruction: string, useSearch: boolean, options: { baseContent?: string; stripTokens?: boolean } = {}) => {
   const res = await fetch('/api/chat', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -818,7 +818,8 @@ const streamAnalysisModel = async (task: ChatGenerationTask, messages: ChatApiMe
 
       if (chunk) {
         text += chunk;
-        task.fullContent = stripAnalysisStreamingTokens(text);
+        const visibleText = options.stripTokens === false ? text : stripAnalysisStreamingTokens(text);
+        task.fullContent = [options.baseContent, visibleText].filter(Boolean).join('\n\n');
         emitSnapshot(task, true);
       }
     }
@@ -826,6 +827,19 @@ const streamAnalysisModel = async (task: ChatGenerationTask, messages: ChatApiMe
 
   return { text: text.trim(), sources };
 };
+
+const getAnalysisPrefaceInstruction = () => [
+  'Decide whether to write an assistant preface before the data/code analysis starts.',
+  'Use the user language and the conversation context.',
+  'If a preface improves the response, write it naturally with the amount of detail that fits the request.',
+  'If the best experience is to start analyzing silently, return no text.',
+  'You may use available search context when it helps make the preface factual or grounded.',
+  'Do not claim the analysis, chart, workbook, or generated file is already finished.',
+  'Do not mention internal tool names, Python code, MCP, or implementation details.',
+  'Do not include markdown tables or code blocks.'
+].join('\n');
+
+const normalizeAnalysisPreface = (text: string) => text.trim();
 
 const getAnalysisCodeInstruction = (files: AttachedDataFile[], requestedCharts: string[], useSearch: boolean, previousError = '', previousCode = '') => [
   'You are DeepChat Code Execution. Generate Python code for a data analysis task.',
@@ -852,7 +866,7 @@ const getAnalysisCodeInstruction = (files: AttachedDataFile[], requestedCharts: 
 ].filter(Boolean).join('\n');
 
 const getFinalAnalysisInstruction = (analysisContext: string) => [
-  'Continue the assistant response after Code Execution.',
+  'Continue the assistant response after Code Execution and do not repeat the opening setup sentence.',
   'Write the final user-facing answer naturally in the user language.',
   'Use the analysis output below as tool context.',
   'Do not mention tool-status filler.',
@@ -877,17 +891,20 @@ const getAnalysisError = (data: CodeAnalysisResponse) => [
 const runCodeAnalysisTool = async (task: ChatGenerationTask, latestUserMessage: ChatApiMessage, decision: ToolDecision) => {
   const files = normalizeAttachedDataFiles(latestUserMessage.attachedFiles);
   const requestedCharts = getRequestedChartTypes(latestUserMessage.content || '');
-  task.mcpContentOffset = 0;
+  const formattedMessages = formatMessages(task.apiMessages);
+  const prefaceResult = await streamAnalysisModel(task, formattedMessages, getAnalysisPrefaceInstruction(), decision.useSearch, { stripTokens: false });
+  const prefaceContent = normalizeAnalysisPreface(prefaceResult.text);
+  task.searchSources = prefaceResult.sources.length ? prefaceResult.sources : task.searchSources;
+  task.fullContent = prefaceContent;
+  task.mcpContentOffset = task.fullContent.length;
   task.mcpUsage = [{
     id: 'code-execution',
     name: 'Code Execution',
     status: 'running',
     details: JSON.stringify({ code: '', stdout: 'Asking the model to write Python analysis code...', stderr: '' }, null, 2)
   }];
-  task.fullContent = '';
   emitSnapshot(task, true);
 
-  const formattedMessages = formatMessages(task.apiMessages);
   const maxAttempts = 4;
   let code = '';
   let data: CodeAnalysisResponse | null = null;
@@ -972,9 +989,9 @@ const runCodeAnalysisTool = async (task: ChatGenerationTask, latestUserMessage: 
   }];
   emitSnapshot(task, true);
 
-  const finalResult = await streamAnalysisModel(task, formattedMessages, getFinalAnalysisInstruction(compactAnalysisContext(data)), decision.useSearch);
+  const finalResult = await streamAnalysisModel(task, formattedMessages, getFinalAnalysisInstruction(compactAnalysisContext(data)), decision.useSearch, { baseContent: prefaceContent });
   task.searchSources = finalResult.sources.length ? finalResult.sources : task.searchSources;
-  task.fullContent = formatAnalysisMarkdown(finalResult.text || 'Here is the analysis.', data);
+  task.fullContent = [prefaceContent, formatAnalysisMarkdown(finalResult.text || 'Here is the analysis.', data)].filter(Boolean).join('\n\n');
   await finishSuccessfulTask(task);
 };
 
@@ -1022,6 +1039,7 @@ const finishSuccessfulTask = async (task: ChatGenerationTask) => {
 const finishStoppedTask = async (task: ChatGenerationTask) => {
   task.status = 'stopped';
   task.fullContent = task.fullContent || 'Generation stopped.';
+  task.mcpUsage = task.mcpUsage.map(item => item.id === 'code-execution' && item.status === 'running' ? { ...item, status: 'completed' } : item);
   await saveFinalMessage(task, { isStopped: true });
   emitSnapshot(task, true);
   publishDeepChatNotification({

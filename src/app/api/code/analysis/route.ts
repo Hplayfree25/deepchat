@@ -2,6 +2,7 @@ import { randomUUID } from 'crypto';
 import { spawn } from 'child_process';
 import { existsSync } from 'fs';
 import { mkdir, stat, writeFile } from 'fs/promises';
+import { tmpdir } from 'os';
 import { basename, delimiter, join, normalize, sep } from 'path';
 import { NextResponse } from 'next/server';
 import { getRunnerEnvironment } from '@/lib/code-runner-security';
@@ -25,7 +26,7 @@ type AnalysisPayload = {
 
 const ANALYSIS_ROOT = join(process.cwd(), 'data', 'analysis');
 const TEMP_FILE_ROOT = join(process.cwd(), 'data', 'temp', 'file');
-const RUNTIME_ROOT = join(process.cwd(), 'data', 'runtime', 'python');
+const RUNTIME_ROOT = join(tmpdir(), 'deepchat', 'runtime', 'python');
 const RUNTIME_VENV_DIR = join(RUNTIME_ROOT, 'venv');
 const RUNTIME_CACHE_DIR = join(RUNTIME_ROOT, 'cache');
 const RUNTIME_TMP_DIR = join(RUNTIME_ROOT, 'tmp');

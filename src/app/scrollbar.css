@@ -142,6 +142,20 @@ html[data-appearance="dark"] .code-preview-code ::selection {
   animation: deepchat-analysis-dropdown-in 420ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
+.deepchat-subtle-analyzing {
+  animation: deepchat-subtle-analyzing 1.8s ease-in-out infinite;
+  text-shadow: 0 0 18px rgba(148, 163, 184, 0.28);
+}
+
+.deepchat-subtle-analyzing-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 999px;
+  background: currentColor;
+  opacity: 0.54;
+  animation: deepchat-subtle-analyzing-dot 1.15s ease-in-out infinite;
+}
+
 @keyframes deepchat-code-spin {
   from {
     transform: rotate(0deg);
@@ -192,6 +206,30 @@ html[data-appearance="dark"] .code-preview-code ::selection {
     clip-path: inset(0 0 0 0 round 14px);
     transform: translateY(0) scaleY(1);
     filter: blur(0);
+  }
+}
+
+@keyframes deepchat-subtle-analyzing {
+  0%, 100% {
+    opacity: 0.58;
+    filter: drop-shadow(0 0 0 rgba(148, 163, 184, 0));
+  }
+
+  50% {
+    opacity: 0.96;
+    filter: drop-shadow(0 0 8px rgba(148, 163, 184, 0.3));
+  }
+}
+
+@keyframes deepchat-subtle-analyzing-dot {
+  0%, 100% {
+    transform: scale(0.78);
+    opacity: 0.34;
+  }
+
+  50% {
+    transform: scale(1);
+    opacity: 0.78;
   }
 }
 

@@ -1,8 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import Image from 'next/image';
-import { getChat, saveMessage, uploadFile, getUserProfile } from '@/app/actions';
+import { getChat, saveMessage, uploadFile } from '@/app/actions';
 import MarkdownRenderer from '@/components/ui/MarkdownRenderer';
 import ChatComposer, { getComposerFileIcon } from '@/components/ui/ChatComposer';
 import {
@@ -16,16 +15,9 @@ import {
 import { formatClarificationAnswer, isGeneratedClarificationAnswerContent, parseAgentClarification, type AgentClarification, type AgentClarificationAnswer, type AgentClarificationOption } from '@/lib/agent-clarification';
 import {
   Copy, ThumbsUp, ThumbsDown, RefreshCcw,
-  Bot, Check, ChevronDown, ChevronRight, BrainCircuit, ChevronLeft, Edit3, X, Cpu, Code2, Terminal
+  Bot, Check, ChevronDown, ChevronRight, BrainCircuit, ChevronLeft, Edit3, X, Cpu, Code2
 } from 'lucide-react';
 import toast from 'react-hot-toast';
-
-const DEFAULT_USER_AVATAR = 'https://api.dicebear.com/7.x/avataaars/svg?seed=Felix';
-
-type UserProfile = {
-  name?: string;
-  avatar?: string;
-};
 
 type AttachedFile = {
   name: string;
@@ -176,7 +168,6 @@ export default function ChatView({ chatId }: { chatId: string }) {
   const [isUploading, setIsUploading] = useState(false);
   const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>([]);
   const [webSearchEnabled, setWebSearchEnabled] = useState(false);
-  const [userProfile, setUserProfile] = useState<UserProfile>({ name: 'Guest', avatar: DEFAULT_USER_AVATAR });
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const dotsContainerRef = useRef<HTMLDivElement>(null);
   const initialMsgProcessed = useRef(false);
@@ -228,25 +219,6 @@ export default function ChatView({ chatId }: { chatId: string }) {
   useEffect(() => {
     messagesRef.current = messages;
   }, [messages]);
-
-  useEffect(() => {
-    let mounted = true;
-    const loadProfile = async () => {
-      const savedProfile = await getUserProfile() as UserProfile;
-      if (!mounted) return;
-      setUserProfile({
-        name: savedProfile?.name || 'Guest',
-        avatar: savedProfile?.avatar || DEFAULT_USER_AVATAR
-      });
-    };
-
-    void loadProfile();
-    window.addEventListener('profileUpdated', loadProfile);
-    return () => {
-      mounted = false;
-      window.removeEventListener('profileUpdated', loadProfile);
-    };
-  }, []);
 
   useEffect(() => {
     let mounted = true;
@@ -676,8 +648,6 @@ export default function ChatView({ chatId }: { chatId: string }) {
             <MessageBubble
               key={msg.id}
               message={msg}
-              userAvatar={userProfile.avatar}
-              userName={userProfile.name}
               onRegenerate={() => handleRegenerate(msg.id)}
               onSwitchVersion={(delta) => switchVersion(msg.id, delta)}
               canEditUserMessage={msg.role === 'user' && msg.id === latestUserMessageId}
@@ -943,79 +913,64 @@ function ClarificationAnswerBadge({ answer }: { answer: AgentClarificationAnswer
   );
 }
 
-function parseCodeExecutionDetails(details?: string) {
-  if (!details) return { code: '', stdout: '', stderr: '' };
-  try {
-    const parsed = JSON.parse(details) as unknown;
-    if (!parsed || typeof parsed !== 'object') return { code: '', stdout: details, stderr: '' };
-    const value = parsed as Record<string, unknown>;
-    return {
-      code: typeof value.code === 'string' ? value.code : '',
-      stdout: typeof value.stdout === 'string' ? value.stdout : '',
-      stderr: typeof value.stderr === 'string' ? value.stderr : ''
-    };
-  } catch {
-    return { code: '', stdout: details, stderr: '' };
-  }
-}
-
 function CodeExecutionUsageSection({ usage }: { usage: MCPUsageItem }) {
   const [isExpanded, setIsExpanded] = useState(false);
-  const details = parseCodeExecutionDetails(usage.details);
   const isRunning = usage.status === 'running';
   const isError = usage.status === 'error';
-  const title = isError ? 'Analyzing error' : isRunning ? 'Analyzing' : 'Analyzed';
+  if (usage.status === 'completed') return null;
+  const details = getCodeExecutionDisplayDetails(usage);
+  const title = isError ? 'Code execution error' : 'Analyzing';
 
   return (
-    <div className="mb-3 max-w-full">
-      <div className={`deepchat-analysis-shell overflow-hidden rounded-2xl border shadow-sm ${isError ? 'border-red-100 bg-red-50/70' : 'border-slate-200 bg-white'}`}>
-        <button
-          type="button"
-          onClick={() => setIsExpanded(open => !open)}
-          className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left"
-        >
-          <span className="flex min-w-0 items-center gap-3">
-            <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-slate-50 text-slate-700 ring-1 ${isError ? 'ring-red-100' : 'ring-slate-200'}`}>
-              {isRunning ? <span className="h-4 w-4 rounded-full border-2 border-slate-300 border-t-slate-800 animate-spin" /> : <Code2 className={`h-4 w-4 ${isError ? 'text-red-500' : 'text-slate-800'}`} />}
-            </span>
-            <span className="min-w-0">
-              <span className={`block truncate text-sm font-extrabold ${isError ? 'text-red-600' : 'text-slate-800'}`}>{title}</span>
-              <span className="mt-0.5 block text-xs font-semibold text-slate-400">Python data analysis</span>
-            </span>
-          </span>
-          {isExpanded ? <ChevronDown className={`h-4 w-4 shrink-0 ${isError ? 'text-red-400' : 'text-slate-500'}`} /> : <ChevronRight className={`h-4 w-4 shrink-0 ${isError ? 'text-red-400' : 'text-slate-500'}`} />}
-        </button>
-        {isExpanded && (
-          <div className="deepchat-analysis-dropdown space-y-3 border-t border-slate-100 bg-white px-4 py-3">
-            <div className="overflow-hidden rounded-xl border border-slate-200">
-              <div className="flex items-center gap-2 border-b border-slate-100 px-3 py-2 text-xs font-extrabold uppercase text-slate-500">
-                <Code2 className="h-3.5 w-3.5" />
-                Python
-              </div>
-              <pre className="max-h-72 overflow-auto whitespace-pre bg-slate-950 p-3 font-mono text-xs leading-6 text-slate-100 custom-scrollbar">{details.code || 'No Python code recorded yet.'}</pre>
+    <div className="mb-3 ml-1 max-w-full">
+      <button
+        type="button"
+        onClick={() => setIsExpanded(open => !open)}
+        className={`inline-flex items-center gap-1.5 rounded-full px-1 py-0.5 text-sm font-semibold transition-colors ${isError ? 'text-red-400 hover:text-red-500' : 'deepchat-subtle-analyzing text-slate-400 hover:text-slate-500'}`}
+      >
+        {isError && <Code2 className="h-3.5 w-3.5" />}
+        <span>{title}</span>
+        {isRunning && <span className="deepchat-subtle-analyzing-dot" />}
+        {isExpanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+      </button>
+      {isExpanded && (
+        <div className="deepchat-analysis-dropdown mt-2 max-w-xl rounded-2xl border border-slate-100 bg-slate-50/70 px-3 py-2 text-xs font-semibold leading-relaxed text-slate-500 shadow-sm">
+          {details.map((item) => (
+            <div key={item} className="flex gap-2 py-0.5">
+              <span className={`mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full ${isError ? 'bg-red-300' : 'bg-slate-300'}`} />
+              <span>{item}</span>
             </div>
-            <div className="overflow-hidden rounded-xl border border-slate-200">
-              <div className="flex items-center gap-2 border-b border-slate-100 px-3 py-2 text-xs font-extrabold uppercase text-slate-500">
-                <Terminal className="h-3.5 w-3.5" />
-                Output
-              </div>
-              <div className="max-h-48 overflow-auto bg-slate-50 p-3 font-mono text-xs leading-6 custom-scrollbar">
-                {details.stdout && <pre className="whitespace-pre-wrap text-slate-700">{details.stdout}</pre>}
-                {details.stderr && <pre className="mt-2 whitespace-pre-wrap text-red-600">{details.stderr}</pre>}
-                {!details.stdout && !details.stderr && <p className="font-sans text-sm font-semibold text-slate-400">No output yet.</p>}
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
 
+function getCodeExecutionDisplayDetails(usage: MCPUsageItem) {
+  const fallback = usage.status === 'error'
+    ? ['The analysis runner could not finish. Technical details are available from the analysis button.']
+    : ['Preparing the analysis.'];
+  if (!usage.details) return fallback;
+  try {
+    const parsed = JSON.parse(usage.details) as unknown;
+    if (!parsed || typeof parsed !== 'object') return fallback;
+    const value = parsed as Record<string, unknown>;
+    const stdout = typeof value.stdout === 'string' ? value.stdout : '';
+    const stderr = typeof value.stderr === 'string' ? value.stderr : '';
+    if (usage.status === 'error') return fallback;
+    if (/Retrying Python analysis/i.test(stdout) || stderr.trim()) return ['Repairing the generated analysis and trying again.'];
+    if (/Running Python analysis/i.test(stdout)) return ['Running calculations in the isolated Python workspace.', 'The first run can take longer while the local runtime warms up.'];
+    if (/Asking the model/i.test(stdout)) return ['Planning the analysis and preparing the code.'];
+    if (/completed/i.test(stdout)) return ['Analysis completed.'];
+    return fallback;
+  } catch {
+    return fallback;
+  }
+}
+
 type MessageBubbleProps = {
   message: ChatMessage;
-  userAvatar?: string;
-  userName?: string;
   onRegenerate?: () => void;
   onSwitchVersion?: (delta: number) => void;
   canEditUserMessage?: boolean;
@@ -1051,7 +1006,7 @@ function MemorySavedBadgeContent() {
   );
 }
 
-const MessageBubble = React.memo(function MessageBubble({ message, userAvatar, userName, onRegenerate, onSwitchVersion, canEditUserMessage = false, onEditUserMessage }: MessageBubbleProps) {
+const MessageBubble = React.memo(function MessageBubble({ message, onRegenerate, onSwitchVersion, canEditUserMessage = false, onEditUserMessage }: MessageBubbleProps) {
   const isUser = message.role === 'user';
   const [copied, setCopied] = useState(false);
   const [isEditingUserMessage, setIsEditingUserMessage] = useState(false);
@@ -1092,25 +1047,17 @@ const MessageBubble = React.memo(function MessageBubble({ message, userAvatar, u
   const hasVersions = message.versions && message.versions.length > 1;
   const totalVersions = message.versions?.length || 1;
   const currentIdx = Math.min(Math.max(message.currentVersionIndex || 0, 0), totalVersions - 1);
-  const hasMCPUsage = !isUser && Boolean(message.mcpUsage && message.mcpUsage.length > 0);
-  const hasActiveCodeExecution = !isUser && Boolean(message.mcpUsage?.some(item => item.id === 'code-execution' && item.status === 'running'));
+  const visibleMCPUsage = message.isStopped ? (message.mcpUsage || []).filter(item => !(item.id === 'code-execution' && item.status === 'running')) : (message.mcpUsage || []);
+  const hasMCPUsage = !isUser && visibleMCPUsage.length > 0;
+  const hasActiveCodeExecution = !isUser && message.isStreaming === true && Boolean(visibleMCPUsage.some(item => item.id === 'code-execution' && item.status === 'running'));
   const mcpOffset = typeof message.mcpContentOffset === 'number' ? Math.min(Math.max(message.mcpContentOffset, 0), (message.content || '').length) : undefined;
   const preMCPContent = hasMCPUsage && mcpOffset !== undefined ? (message.content || '').slice(0, mcpOffset).trim() : '';
   const postMCPContent = hasMCPUsage && mcpOffset !== undefined ? (message.content || '').slice(mcpOffset).trim() : '';
   const standardContent = hasMCPUsage && mcpOffset !== undefined ? '' : message.content;
 
   return (
-    <div id={`msg-${message.id}`} className={`group/message flex items-start gap-2 sm:gap-4 ${isUser ? 'flex-row-reverse message-user' : 'flex-row'} animate-in fade-in slide-in-from-bottom-2`}>
-      <div className={`relative w-8 h-8 sm:w-10 sm:h-10 rounded-full flex items-center justify-center shrink-0 border shadow-sm mt-1 overflow-hidden ${isUser ? 'bg-slate-100 border-slate-200' : 'bg-indigo-100 border-indigo-200'
-        }`}>
-        {isUser ? (
-          <Image src={userAvatar || DEFAULT_USER_AVATAR} alt={userName || 'User'} fill sizes="40px" unoptimized className="rounded-full bg-slate-100 object-cover" />
-        ) : (
-          <Bot className="w-5 h-5 text-indigo-600" />
-        )}
-      </div>
-
-      <div className={`flex min-w-0 flex-col ${isUser ? 'max-w-[82%] items-end sm:max-w-[75%]' : 'max-w-[86%] items-start sm:max-w-[75%]'}`}>
+    <div id={`msg-${message.id}`} className={`group/message flex w-full items-start ${isUser ? 'justify-end message-user' : 'justify-start'} animate-in fade-in slide-in-from-bottom-2`}>
+      <div className={`flex min-w-0 flex-col ${isUser ? 'max-w-[82%] items-end sm:max-w-[75%]' : 'w-full max-w-3xl items-start'}`}>
         {!isUser && message.reasoning && (
           <ReasoningSection content={message.reasoning} isStreaming={message.isStreaming && !message.content} duration={message.reasoningDuration} />
         )}
@@ -1120,13 +1067,13 @@ const MessageBubble = React.memo(function MessageBubble({ message, userAvatar, u
         )}
 
         {!isUser && preMCPContent && (
-          <div className="mb-3 max-w-full rounded-2xl rounded-tl-sm border border-slate-200 bg-white px-4 py-3 text-slate-800 shadow-sm sm:px-5">
+          <div className="mb-2 max-w-full px-1 py-1 text-slate-800">
             <MarkdownRenderer content={preMCPContent} isStreaming={message.isStreaming && !postMCPContent} searchSources={message.searchSources} />
           </div>
         )}
 
         {!isUser && hasMCPUsage && (
-          <MCPUsageSection notice={message.mcpNotice} usage={message.mcpUsage} />
+          <MCPUsageSection notice={message.mcpNotice} usage={visibleMCPUsage} />
         )}
 
         {isUser && message.attachedFiles && message.attachedFiles.length > 0 && (
@@ -1146,11 +1093,11 @@ const MessageBubble = React.memo(function MessageBubble({ message, userAvatar, u
         )}
 
         {(standardContent || postMCPContent) ? (
-          <div className={`px-4 sm:px-5 py-3 rounded-2xl sm:rounded-3xl shadow-sm max-w-full ${isUser
-            ? 'bg-indigo-600 text-white rounded-tr-sm'
+          <div className={`max-w-full ${isUser
+            ? 'rounded-2xl rounded-tr-sm bg-indigo-600 px-4 py-3 text-white shadow-sm sm:rounded-3xl sm:px-5'
             : message.isError
-              ? 'bg-red-50 border border-red-100 text-red-800 rounded-tl-sm'
-              : 'bg-white border border-slate-200 text-slate-800 rounded-tl-sm'
+              ? 'px-1 py-1 text-red-600'
+              : 'px-1 py-1 text-slate-800'
             }`}>
             {isUser && isEditingUserMessage ? (
               <div className="w-[min(72vw,520px)]">
@@ -1193,7 +1140,7 @@ const MessageBubble = React.memo(function MessageBubble({ message, userAvatar, u
             )}
           </div>
         ) : message.isStreaming && !message.reasoning && !hasActiveCodeExecution && (
-          <div className="bg-white border border-slate-200 rounded-2xl rounded-tl-sm px-5 py-3 shadow-sm min-h-[44px] flex items-center w-fit">
+          <div className="flex min-h-8 w-fit items-center px-1 py-2">
             <div className="flex space-x-1.5">
               <div className="w-2 h-2 bg-indigo-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
               <div className="w-2 h-2 bg-indigo-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
@@ -1284,4 +1231,4 @@ const MessageBubble = React.memo(function MessageBubble({ message, userAvatar, u
       </div>
     </div>
   );
-}, (prev, next) => prev.message === next.message && prev.userAvatar === next.userAvatar && prev.userName === next.userName && prev.canEditUserMessage === next.canEditUserMessage && prev.onEditUserMessage === next.onEditUserMessage);
+}, (prev, next) => prev.message === next.message && prev.canEditUserMessage === next.canEditUserMessage && prev.onEditUserMessage === next.onEditUserMessage);
