@@ -30,6 +30,7 @@ import {
 export type { LLMSettings } from '@/lib/llm-settings';
 
 const TEMP_FILE_ROOT = TEMP_FILE_DIR;
+const ANALYSIS_ROOT = path.join(process.cwd(), 'data', 'analysis');
 
 type ConnectionData = {
   id?: string;
@@ -73,6 +74,65 @@ const deleteSharedChatCopy = async (chat: StoredChat | null | undefined) => {
   if (typeof chat?.shareId !== 'string' || !chat.shareId) return;
   deleteSharedSnapshot(chat.shareId);
   await unlinkIfExists(path.join(SHARE_DIR, `${chat.shareId}.json`));
+};
+
+const rmDirIfExists = async (dirPath: string) => {
+  try {
+    await fs.rm(dirPath, { recursive: true, force: true });
+  } catch (error: unknown) {
+    if (!(error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT')) throw error;
+  }
+};
+
+const collectAnalysisRunIdsFromValue = (value: unknown, runIds: Set<string>) => {
+  if (typeof value === 'string') {
+    const patterns = [
+      /"runId"\s*:\s*"([a-f0-9-]{12,})"/gi,
+      /[?&]runId=([a-f0-9-]{12,})/gi
+    ];
+    for (const pattern of patterns) {
+      let match: RegExpExecArray | null;
+      while ((match = pattern.exec(value)) !== null) {
+        runIds.add(match[1]);
+      }
+    }
+    return;
+  }
+  if (Array.isArray(value)) {
+    value.forEach(item => collectAnalysisRunIdsFromValue(item, runIds));
+    return;
+  }
+  if (value && typeof value === 'object') {
+    Object.values(value as Record<string, unknown>).forEach(item => collectAnalysisRunIdsFromValue(item, runIds));
+  }
+};
+
+const deleteChatAnalysisArtifacts = async (chat: StoredChat | null | undefined) => {
+  const runIds = new Set<string>();
+  collectAnalysisRunIdsFromValue(chat, runIds);
+  const root = path.normalize(ANALYSIS_ROOT + path.sep);
+
+  for (const runId of runIds) {
+    const runPath = path.normalize(path.join(ANALYSIS_ROOT, runId));
+    if (!runPath.toLowerCase().startsWith(root.toLowerCase())) continue;
+    await rmDirIfExists(runPath);
+  }
+
+  let entries: string[] = [];
+  try {
+    entries = await fs.readdir(ANALYSIS_ROOT);
+  } catch {
+    return;
+  }
+  for (const entry of entries) {
+    const runPath = path.normalize(path.join(ANALYSIS_ROOT, entry));
+    if (!runPath.toLowerCase().startsWith(root.toLowerCase())) continue;
+    try {
+      const meta = JSON.parse(await fs.readFile(path.join(runPath, 'meta.json'), 'utf-8'));
+      if (meta?.chatId === chat?.id) await rmDirIfExists(runPath);
+    } catch {
+    }
+  }
 };
 
 const normalizeMessageVersions = (message: StoredMessage) => {
@@ -215,6 +275,7 @@ export async function deleteChat(id: string) {
     const chat = await getChat(id);
     if (chat) {
       await deleteChatAttachments(chat);
+      await deleteChatAnalysisArtifacts(chat);
       await deleteSharedChatCopy(chat);
     }
     deleteChatRecord(id);
@@ -334,8 +395,10 @@ export async function deleteAllChats() {
     const chats = listChatRecords(false).concat(listChatRecords(true));
     for (const chat of chats) {
       await deleteChatAttachments(chat);
+      await deleteChatAnalysisArtifacts(chat);
       await deleteSharedChatCopy(chat);
     }
+    await rmDirIfExists(ANALYSIS_ROOT);
     deleteAllChatRecords();
     await clearChatHistory();
     revalidatePath('/');

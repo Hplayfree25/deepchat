@@ -16,7 +16,7 @@ export const normalizeRunnerOutput = (value: string) => value.replace(/\r\n/g, '
 export const compactRunnerOutput = normalizeRunnerOutput;
 export const truncateRunnerOutput = normalizeRunnerOutput;
 
-export const getRunnerEnvironment = (): NodeJS.ProcessEnv => ({
+export const getRunnerEnvironment = (patch: Partial<NodeJS.ProcessEnv> = {}): NodeJS.ProcessEnv => ({
   ...process.env,
   PATH: process.env.PATH || process.env.Path || '',
   Path: process.env.Path || process.env.PATH || '',
@@ -24,5 +24,7 @@ export const getRunnerEnvironment = (): NodeJS.ProcessEnv => ({
   TMP: process.env.TMP || tmpdir(),
   PYTHONIOENCODING: 'utf-8',
   PYTHONUNBUFFERED: '1',
-  NODE_NO_WARNINGS: '1'
+  PYTHONNOUSERSITE: '1',
+  NODE_NO_WARNINGS: '1',
+  ...patch
 });

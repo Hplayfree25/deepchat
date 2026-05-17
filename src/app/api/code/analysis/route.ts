@@ -2,7 +2,7 @@ import { randomUUID } from 'crypto';
 import { spawn } from 'child_process';
 import { existsSync } from 'fs';
 import { mkdir, stat, writeFile } from 'fs/promises';
-import { basename, join, normalize, sep } from 'path';
+import { basename, delimiter, join, normalize, sep } from 'path';
 import { NextResponse } from 'next/server';
 import { getRunnerEnvironment } from '@/lib/code-runner-security';
 
@@ -25,10 +25,16 @@ type AnalysisPayload = {
 
 const ANALYSIS_ROOT = join(process.cwd(), 'data', 'analysis');
 const TEMP_FILE_ROOT = join(process.cwd(), 'data', 'temp', 'file');
+const RUNTIME_ROOT = join(process.cwd(), 'data', 'runtime', 'python');
+const RUNTIME_VENV_DIR = join(RUNTIME_ROOT, 'venv');
+const RUNTIME_CACHE_DIR = join(RUNTIME_ROOT, 'cache');
+const RUNTIME_TMP_DIR = join(RUNTIME_ROOT, 'tmp');
+const RUNTIME_VENV_BIN = process.platform === 'win32' ? join(RUNTIME_VENV_DIR, 'Scripts') : join(RUNTIME_VENV_DIR, 'bin');
+const RUNTIME_VENV_PYTHON = process.platform === 'win32' ? join(RUNTIME_VENV_BIN, 'python.exe') : join(RUNTIME_VENV_BIN, 'python');
 const RESULT_MARKER = '__DEEPCHAT_ANALYSIS_RESULT__';
 const DATA_EXTENSIONS = new Set(['csv', 'json', 'jsonl', 'xlsx', 'xls']);
-const PYTHON_IMPORTS = ['pandas', 'numpy', 'matplotlib', 'seaborn', 'plotly', 'openpyxl', 'sklearn'];
-const PIP_PACKAGES = ['pandas', 'numpy', 'matplotlib', 'seaborn', 'plotly', 'openpyxl', 'scikit-learn'];
+const PYTHON_IMPORTS = ['pandas', 'numpy', 'matplotlib', 'seaborn', 'plotly', 'openpyxl', 'sklearn', 'scipy', 'statsmodels', 'PIL', 'pyarrow', 'xlsxwriter'];
+const PIP_PACKAGES = ['pandas', 'numpy', 'matplotlib', 'seaborn', 'plotly', 'openpyxl', 'scikit-learn', 'scipy', 'statsmodels', 'pillow', 'pyarrow', 'xlsxwriter'];
 
 let pythonStackReady = false;
 
@@ -66,12 +72,27 @@ const getArtifactUrl = (runId: string, artifactName: string, download = false) =
   return `/api/code/analysis/artifact?${params.toString()}`;
 };
 
-const runProcess = (command: string, args: string[], cwd: string, input = '', timeoutMs = 300000) => new Promise<{ stdout: string; stderr: string; exitCode: number | null }>((resolve) => {
+const getRuntimeEnv = (tempDir = RUNTIME_TMP_DIR): Partial<NodeJS.ProcessEnv> => {
+  const pathValue = [RUNTIME_VENV_BIN, process.env.PATH || process.env.Path || ''].filter(Boolean).join(delimiter);
+  return {
+    VIRTUAL_ENV: RUNTIME_VENV_DIR,
+    PATH: pathValue,
+    Path: pathValue,
+    TEMP: tempDir,
+    TMP: tempDir,
+    PYTHONPYCACHEPREFIX: join(tempDir, 'pycache'),
+    MPLCONFIGDIR: join(tempDir, 'matplotlib'),
+    XDG_CACHE_HOME: join(tempDir, 'cache'),
+    PIP_CACHE_DIR: join(RUNTIME_CACHE_DIR, 'pip')
+  };
+};
+
+const runProcess = (command: string, args: string[], cwd: string, input = '', timeoutMs = 300000, envPatch: Partial<NodeJS.ProcessEnv> = {}) => new Promise<{ stdout: string; stderr: string; exitCode: number | null }>((resolve) => {
   const child = spawn(command, args, {
     cwd,
     shell: false,
     windowsHide: true,
-    env: getRunnerEnvironment()
+    env: getRunnerEnvironment(envPatch)
   });
   let stdout = '';
   let stderr = '';
@@ -102,7 +123,7 @@ const runProcess = (command: string, args: string[], cwd: string, input = '', ti
   child.stdin.end();
 });
 
-const getPythonCommand = () => {
+const getBasePythonCommand = () => {
   const candidates = [
     process.env.DEEPCHAT_PYTHON,
     join(process.env.USERPROFILE || '', 'miniconda3', 'python.exe'),
@@ -113,7 +134,19 @@ const getPythonCommand = () => {
 };
 
 const ensurePythonDataStack = async (cwd: string) => {
-  const python = getPythonCommand();
+  await mkdir(RUNTIME_ROOT, { recursive: true });
+  await mkdir(RUNTIME_CACHE_DIR, { recursive: true });
+  await mkdir(RUNTIME_TMP_DIR, { recursive: true });
+
+  if (!existsSync(RUNTIME_VENV_PYTHON)) {
+    const basePython = getBasePythonCommand();
+    const createVenv = await runProcess(basePython, ['-m', 'venv', RUNTIME_VENV_DIR], RUNTIME_ROOT, '', 300000, getRuntimeEnv(RUNTIME_TMP_DIR));
+    if (createVenv.exitCode !== 0 || !existsSync(RUNTIME_VENV_PYTHON)) {
+      throw new Error(createVenv.stderr || createVenv.stdout || 'Failed to create the isolated Python runtime.');
+    }
+  }
+
+  const python = RUNTIME_VENV_PYTHON;
   if (pythonStackReady) return python;
   const importCode = [
     'import importlib, json',
@@ -126,7 +159,8 @@ const ensurePythonDataStack = async (cwd: string) => {
     '        missing.append(package)',
     'print(json.dumps(missing))'
   ].join('\n');
-  const firstCheck = await runProcess(python, ['-c', importCode], cwd, '', 60000);
+  const runtimeEnv = getRuntimeEnv(RUNTIME_TMP_DIR);
+  const firstCheck = await runProcess(python, ['-c', importCode], cwd, '', 60000, runtimeEnv);
   let missing: string[] = [];
   try {
     missing = JSON.parse(firstCheck.stdout.trim() || '[]');
@@ -137,8 +171,11 @@ const ensurePythonDataStack = async (cwd: string) => {
     pythonStackReady = true;
     return python;
   }
-  await runProcess(python, ['-m', 'pip', 'install', ...PIP_PACKAGES], cwd, '', 600000);
-  const secondCheck = await runProcess(python, ['-c', importCode], cwd, '', 60000);
+  const install = await runProcess(python, ['-m', 'pip', 'install', '--disable-pip-version-check', ...PIP_PACKAGES], cwd, '', 900000, runtimeEnv);
+  if (install.exitCode !== 0) {
+    throw new Error(install.stderr || install.stdout || 'Automatic Python dependency setup failed.');
+  }
+  const secondCheck = await runProcess(python, ['-c', importCode], cwd, '', 60000, runtimeEnv);
   try {
     missing = JSON.parse(secondCheck.stdout.trim() || '[]');
   } catch {
@@ -243,6 +280,8 @@ def is_subpath(path, root):
 def assert_read_path(path):
     if path is None:
         return
+    if isinstance(path, int):
+        return
     if hasattr(path, "fileno"):
         return
     text = os.fspath(path)
@@ -255,6 +294,8 @@ def assert_read_path(path):
 
 def assert_write_path(path):
     if path is None:
+        return
+    if isinstance(path, int):
         return
     text = os.fspath(path)
     current = os.path.abspath(text)
@@ -850,11 +891,12 @@ except Exception:
 `;
 
 const runPythonAnalysis = (python: string, input: Record<string, unknown>, scriptPath: string, outputDir: string, signal: AbortSignal) => new Promise<{ stdout: string; stderr: string; timedOut: boolean; exitCode: number | null }>((resolve) => {
+  const runTempDir = join(outputDir, '.tmp');
   const child = spawn(python, [scriptPath], {
     cwd: outputDir,
     shell: false,
     windowsHide: true,
-    env: getRunnerEnvironment()
+    env: getRunnerEnvironment(getRuntimeEnv(runTempDir))
   });
   let stdout = '';
   let stderr = '';
@@ -908,6 +950,16 @@ export async function POST(req: Request) {
     const runId = randomUUID();
     const outputDir = join(ANALYSIS_ROOT, runId);
     await mkdir(outputDir, { recursive: true });
+    await mkdir(join(outputDir, '.tmp'), { recursive: true });
+    await writeFile(join(outputDir, 'meta.json'), JSON.stringify({
+      chatId: typeof payload.chatId === 'string' ? payload.chatId : '',
+      createdAt: new Date().toISOString(),
+      runtime: {
+        mode: 'local-venv',
+        workspace: outputDir,
+        python: RUNTIME_VENV_PYTHON
+      }
+    }, null, 2), 'utf8');
     const python = await ensurePythonDataStack(outputDir);
     const scriptPath = join(outputDir, 'analysis.py');
     await writeFile(scriptPath, analysisScript, 'utf8');

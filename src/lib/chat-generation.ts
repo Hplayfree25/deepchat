@@ -827,7 +827,7 @@ const streamAnalysisModel = async (task: ChatGenerationTask, messages: ChatApiMe
   return { text: text.trim(), sources };
 };
 
-const getAnalysisCodeInstruction = (files: AttachedDataFile[], requestedCharts: string[], useSearch: boolean, previousError = '') => [
+const getAnalysisCodeInstruction = (files: AttachedDataFile[], requestedCharts: string[], useSearch: boolean, previousError = '', previousCode = '') => [
   'You are DeepChat Code Execution. Generate Python code for a data analysis task.',
   'Return only valid JSON with this exact shape: {"code":"..."}',
   'The code must be authored specifically for the user request, not a generic template.',
@@ -844,6 +844,7 @@ const getAnalysisCodeInstruction = (files: AttachedDataFile[], requestedCharts: 
   'Create the chart type requested by the user when possible.',
   requestedCharts.length ? `Requested chart types: ${requestedCharts.join(', ')}.` : 'If no chart type is specified, choose the most appropriate chart type.',
   files.length ? `Attached data files: ${files.map(file => `${file.name} (${file.ext})`).join(', ')}.` : 'No attached dataset is available.',
+  previousCode ? `Previous Python code that failed:\n${previousCode.slice(0, 6000)}` : '',
   previousError ? `The previous execution failed. Fix the code based on this error and do not repeat the same mistake:\n${previousError.slice(0, 4000)}` : '',
   'Save every important Matplotlib chart by calling save_current_matplotlib_chart(title, chart_type).',
   'Save every important Plotly chart by calling save_plotly_chart(fig, title, chart_type).',
@@ -887,7 +888,7 @@ const runCodeAnalysisTool = async (task: ChatGenerationTask, latestUserMessage: 
   emitSnapshot(task, true);
 
   const formattedMessages = formatMessages(task.apiMessages);
-  const maxAttempts = 3;
+  const maxAttempts = 4;
   let code = '';
   let data: CodeAnalysisResponse | null = null;
   let lastError = '';
@@ -905,7 +906,7 @@ const runCodeAnalysisTool = async (task: ChatGenerationTask, latestUserMessage: 
     }];
     emitSnapshot(task, true);
 
-    const codeResult = await callAnalysisModel(task, formattedMessages, getAnalysisCodeInstruction(files, requestedCharts, decision.useSearch, lastError), decision.useSearch);
+    const codeResult = await callAnalysisModel(task, formattedMessages, getAnalysisCodeInstruction(files, requestedCharts, decision.useSearch, lastError, code), decision.useSearch);
     code = getPythonFromModelText(codeResult.text);
     task.searchSources = codeResult.sources.length ? codeResult.sources : task.searchSources;
     if (!isUsablePythonCode(code)) {
@@ -924,6 +925,7 @@ const runCodeAnalysisTool = async (task: ChatGenerationTask, latestUserMessage: 
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
+        chatId: task.chatId,
         prompt: latestUserMessage.content || '',
         displayCode: code,
         code,
