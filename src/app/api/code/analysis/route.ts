@@ -15,6 +15,7 @@ type AttachedFileInput = {
 };
 
 type AnalysisPayload = {
+  chatId?: unknown;
   prompt?: unknown;
   code?: unknown;
   displayCode?: unknown;
@@ -152,6 +153,7 @@ const ensurePythonDataStack = async (cwd: string) => {
 
 const analysisScript = String.raw`
 import base64
+import builtins
 import contextlib
 import io
 import importlib
@@ -190,6 +192,10 @@ import plotly.express as px
 import plotly.io as pio
 import seaborn as sns
 from matplotlib.backends.backend_pdf import PdfPages
+from openpyxl import load_workbook
+from openpyxl.styles import Alignment, Font, PatternFill
+from openpyxl.worksheet.table import Table, TableStyleInfo
+from openpyxl.utils import get_column_letter
 
 try:
     from sklearn.cluster import KMeans
@@ -201,9 +207,106 @@ except Exception:
 payload = json.loads(sys.stdin.read() or "{}")
 output_dir = payload.get("outputDir") or os.getcwd()
 requested_charts = payload.get("requestedCharts") or []
+wants_spreadsheet = bool(payload.get("wantsSpreadsheet"))
 os.makedirs(output_dir, exist_ok=True)
 sns.set_theme(style="whitegrid", palette="deep")
 palette = ["#2f7ed8", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd", "#17becf"]
+
+allowed_read_roots = set()
+allowed_write_roots = set([os.path.abspath(output_dir)])
+for item in payload.get("files") or []:
+    file_path = item.get("path")
+    if file_path:
+        allowed_read_roots.add(os.path.abspath(file_path))
+        allowed_read_roots.add(os.path.abspath(os.path.dirname(file_path)))
+allowed_read_roots.add(os.path.abspath(output_dir))
+allowed_read_roots.add(os.path.abspath(sys.prefix))
+allowed_read_roots.add(os.path.abspath(sys.base_prefix))
+original_open = builtins.open
+original_os_open = os.open
+original_remove = os.remove
+original_unlink = os.unlink
+original_rename = os.rename
+original_replace = os.replace
+original_makedirs = os.makedirs
+original_listdir = os.listdir
+original_scandir = os.scandir
+
+def is_subpath(path, root):
+    try:
+        current = os.path.abspath(path)
+        parent = os.path.abspath(root)
+        return current == parent or current.startswith(parent + os.sep)
+    except Exception:
+        return False
+
+def assert_read_path(path):
+    if path is None:
+        return
+    if hasattr(path, "fileno"):
+        return
+    text = os.fspath(path)
+    if not text or text.startswith("<"):
+        return
+    current = os.path.abspath(text)
+    if any(is_subpath(current, root) for root in allowed_read_roots):
+        return
+    raise PermissionError("Code Execution can only read uploaded files, generated artifacts, and runtime libraries.")
+
+def assert_write_path(path):
+    if path is None:
+        return
+    text = os.fspath(path)
+    current = os.path.abspath(text)
+    if any(is_subpath(current, root) for root in allowed_write_roots):
+        return
+    raise PermissionError("Code Execution can only write files inside the current analysis workspace.")
+
+def guarded_open(file, mode="r", *args, **kwargs):
+    mode_text = str(mode)
+    if any(token in mode_text for token in ["w", "a", "x", "+"]):
+        assert_write_path(file)
+    else:
+        assert_read_path(file)
+    return original_open(file, mode, *args, **kwargs)
+
+def guarded_os_open(file, flags, *args, **kwargs):
+    write_flags = os.O_WRONLY | os.O_RDWR | os.O_CREAT | os.O_APPEND | os.O_TRUNC
+    if flags & write_flags:
+        assert_write_path(file)
+    else:
+        assert_read_path(file)
+    return original_os_open(file, flags, *args, **kwargs)
+
+def guarded_remove(path, *args, **kwargs):
+    assert_write_path(path)
+    return original_remove(path, *args, **kwargs)
+
+def guarded_unlink(path, *args, **kwargs):
+    assert_write_path(path)
+    return original_unlink(path, *args, **kwargs)
+
+def guarded_rename(src, dst, *args, **kwargs):
+    assert_write_path(src)
+    assert_write_path(dst)
+    return original_rename(src, dst, *args, **kwargs)
+
+def guarded_replace(src, dst, *args, **kwargs):
+    assert_write_path(src)
+    assert_write_path(dst)
+    return original_replace(src, dst, *args, **kwargs)
+
+def guarded_makedirs(name, *args, **kwargs):
+    assert_write_path(name)
+    return original_makedirs(name, *args, **kwargs)
+
+def guarded_listdir(path="."):
+    assert_read_path(path)
+    return original_listdir(path)
+
+def guarded_scandir(path="."):
+    assert_read_path(path)
+    return original_scandir(path)
 
 def clean_value(value):
     if value is None:
@@ -436,12 +539,25 @@ def save_html(name, fig):
     return file_name
 
 analysis_charts = []
+analysis_exports = []
+runtime_dataframes = {}
 
 def install_package(package):
     result = subprocess.run([sys.executable, "-m", "pip", "install", package], capture_output=True, text=True, timeout=180)
     if result.returncode != 0:
         raise RuntimeError((result.stderr or result.stdout or "Package installation failed").strip())
     return result.stdout.strip()
+
+def enable_filesystem_guard():
+    builtins.open = guarded_open
+    os.open = guarded_os_open
+    os.remove = guarded_remove
+    os.unlink = guarded_unlink
+    os.rename = guarded_rename
+    os.replace = guarded_replace
+    os.makedirs = guarded_makedirs
+    os.listdir = guarded_listdir
+    os.scandir = guarded_scandir
 
 def save_current_matplotlib_chart(title="Analysis Chart", chart_type="chart"):
     fig = plt.gcf()
@@ -455,6 +571,78 @@ def save_plotly_chart(fig, title="Interactive Analysis Chart", chart_type="chart
     html = save_html(file_key, fig)
     analysis_charts.append({"title": title, "type": chart_type, "staticName": "", "interactiveName": html})
     return html
+
+def style_excel_workbook(path):
+    workbook = load_workbook(path)
+    header_fill = PatternFill("solid", fgColor="111827")
+    header_font = Font(color="FFFFFF", bold=True)
+    total_fill = PatternFill("solid", fgColor="E0F2FE")
+    for sheet in workbook.worksheets:
+        if sheet.max_row < 1 or sheet.max_column < 1:
+            continue
+        for cell in sheet[1]:
+            cell.fill = header_fill
+            cell.font = header_font
+            cell.alignment = Alignment(horizontal="center")
+        for column_cells in sheet.columns:
+            values = [str(cell.value) if cell.value is not None else "" for cell in column_cells]
+            width = min(max([len(value) for value in values] + [10]) + 2, 34)
+            sheet.column_dimensions[get_column_letter(column_cells[0].column)].width = width
+        sheet.freeze_panes = "A2"
+        if sheet.max_row >= 2 and sheet.max_column >= 1:
+            ref = "A1:" + get_column_letter(sheet.max_column) + str(sheet.max_row)
+            table_name = "".join(ch for ch in sheet.title.title() if ch.isalnum())[:20] or "Table"
+            existing = set(sheet.tables.keys())
+            suffix = 1
+            unique_name = table_name
+            while unique_name in existing:
+                suffix += 1
+                unique_name = table_name + str(suffix)
+            table = Table(displayName=unique_name, ref=ref)
+            table.tableStyleInfo = TableStyleInfo(name="TableStyleMedium2", showFirstColumn=False, showLastColumn=False, showRowStripes=True, showColumnStripes=False)
+            sheet.add_table(table)
+        for row in sheet.iter_rows():
+            for cell in row:
+                cell.alignment = Alignment(vertical="center")
+        if sheet.title.lower().startswith("summary"):
+            for row in sheet.iter_rows(min_row=2):
+                for cell in row:
+                    cell.fill = total_fill
+                    cell.font = Font(bold=True)
+    workbook.save(path)
+
+def save_excel_workbook(file_name="analysis-table.xlsx", sheets=None, include_summary=True):
+    safe_name = "".join(ch for ch in file_name if ch.isalnum() or ch in ["-", "_", "."]).strip(".") or "analysis-table.xlsx"
+    if not safe_name.lower().endswith(".xlsx"):
+        safe_name += ".xlsx"
+    path = os.path.join(output_dir, safe_name)
+    source_sheets = sheets or runtime_dataframes
+    if isinstance(source_sheets, pd.DataFrame):
+        source_sheets = {"Data": source_sheets}
+    with pd.ExcelWriter(path, engine="openpyxl") as writer:
+        for sheet_name, sheet_df in source_sheets.items():
+            current_df = pd.DataFrame(sheet_df)
+            current_df.to_excel(writer, sheet_name=str(sheet_name)[:31] or "Data", index=False)
+        if include_summary:
+            summary_rows = []
+            for sheet_name, sheet_df in source_sheets.items():
+                current_df = pd.DataFrame(sheet_df)
+                numeric = list(current_df.select_dtypes(include=[np.number]).columns)
+                for column in numeric[:10]:
+                    excel_column = get_column_letter(list(current_df.columns).index(column) + 1)
+                    last_row = max(len(current_df) + 1, 2)
+                    summary_rows.append({
+                        "Sheet": str(sheet_name)[:31] or "Data",
+                        "Column": column,
+                        "Total": f"=SUM('{str(sheet_name)[:31] or 'Data'}'!{excel_column}2:{excel_column}{last_row})",
+                        "Average": f"=AVERAGE('{str(sheet_name)[:31] or 'Data'}'!{excel_column}2:{excel_column}{last_row})"
+                    })
+            if summary_rows:
+                pd.DataFrame(summary_rows).to_excel(writer, sheet_name="Summary", index=False)
+    style_excel_workbook(path)
+    export_item = {"name": safe_name, "label": "Excel workbook", "mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"}
+    analysis_exports.append(export_item)
+    return safe_name
 
 def wants_chart(kind):
     return not requested_charts or kind in requested_charts
@@ -581,7 +769,7 @@ try:
         clusters = clustering_summary(df, numeric)
         outliers = outlier_summary(df, numeric)
         trends = trend_summary(df, numeric, datetime_columns)
-        charts = [] if user_code else build_charts(df, safe_name, numeric, categorical, datetime_columns)
+        charts = [] if user_code or wants_spreadsheet else build_charts(df, safe_name, numeric, categorical, datetime_columns)
         name = source_name or safe_name
         result = {
             "name": name,
@@ -599,6 +787,7 @@ try:
         }
         results.append(result)
         frames[safe_name] = df
+    runtime_dataframes = frames
 
     if user_code:
         execution_stdout = io.StringIO()
@@ -614,10 +803,12 @@ try:
             "results": results,
             "output_dir": output_dir,
             "install_package": install_package,
+            "save_excel_workbook": save_excel_workbook,
             "save_current_matplotlib_chart": save_current_matplotlib_chart,
             "save_plotly_chart": save_plotly_chart
         }
         with contextlib.redirect_stdout(execution_stdout):
+            enable_filesystem_guard()
             exec(user_code, scope)
         printed = execution_stdout.getvalue().strip()
         if printed:
@@ -626,17 +817,19 @@ try:
             save_current_matplotlib_chart("AI Generated Chart", "chart")
         if analysis_charts and results:
             results[0]["charts"] = analysis_charts + results[0].get("charts", [])
-        if not analysis_charts and results:
+        if not analysis_charts and results and not wants_spreadsheet:
             first_df = next(iter(frames.values())) if frames else pd.DataFrame()
             numeric, categorical, datetime_columns = describe_columns(first_df)
             results[0]["charts"] = build_charts(first_df, "dataset_1", numeric, categorical, datetime_columns)
         if "result" in scope:
             stdout_items.append(clean_value(scope["result"]))
 
-    exports = []
+    if wants_spreadsheet and not analysis_exports:
+        save_excel_workbook("analysis-table.xlsx", frames)
+    exports = analysis_exports
     response = {
         "success": True,
-        "title": "Data Analysis",
+        "title": "Spreadsheet Preview" if wants_spreadsheet else "Data Analysis",
         "prompt": prompt,
         "datasets": results,
         "exports": exports,
@@ -730,6 +923,7 @@ export async function POST(req: Request) {
       displayCode: typeof payload.displayCode === 'string' ? payload.displayCode : '',
       requestedCharts,
       files,
+      wantsSpreadsheet: typeof payload.prompt === 'string' && /\b(excel|spreadsheet|workbook|xlsx|table|tabel|lembar kerja|rumus|formula)\b/i.test(payload.prompt),
       outputDir
     }, scriptPath, outputDir, req.signal);
     const parsed = parsePythonResult(result.stdout);

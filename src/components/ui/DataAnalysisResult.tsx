@@ -21,6 +21,7 @@ type AnalysisDataset = {
   name?: string;
   shape?: { rows?: number; columns?: number };
   columns?: string[];
+  sample?: Record<string, unknown>[];
   insights?: string[];
   warnings?: string[];
   charts?: AnalysisChart[];
@@ -89,6 +90,14 @@ function getPrimaryDataset(data: AnalysisArtifact | null) {
 
 function getCharts(data: AnalysisArtifact | null) {
   return data?.datasets?.flatMap(dataset => dataset.charts || []) || [];
+}
+
+function getSpreadsheetExport(data: AnalysisArtifact | null) {
+  return data?.exports?.find(item => {
+    const mime = item.mimeType || '';
+    const url = item.url || '';
+    return Boolean(item.url) && (mime.includes('spreadsheet') || mime.includes('excel') || url.endsWith('.xlsx'));
+  }) || null;
 }
 
 function normalizeChartKey(chart: AnalysisChart) {
@@ -173,6 +182,47 @@ function AnalysisModal({ data, onClose }: { data: AnalysisArtifact; onClose: () 
   );
 }
 
+function SpreadsheetPreview({ data, expanded = false }: { data: AnalysisArtifact; expanded?: boolean }) {
+  const dataset = getPrimaryDataset(data);
+  const rows = dataset?.sample || [];
+  const columns = dataset?.columns?.length ? dataset.columns : Object.keys(rows[0] || {});
+
+  if (rows.length === 0 || columns.length === 0) {
+    return (
+      <div className="flex h-56 items-center justify-center text-sm font-bold text-slate-400">
+        No table preview available
+      </div>
+    );
+  }
+
+  return (
+    <div className={`overflow-auto bg-white custom-scrollbar ${expanded ? 'h-[calc(100vh-48px)]' : 'max-h-[420px]'}`}>
+      <table className="min-w-full border-separate border-spacing-0 text-left text-sm">
+        <thead className="sticky top-0 z-10 bg-slate-50">
+          <tr>
+            {columns.map(column => (
+              <th key={column} className="border-b border-slate-200 px-3 py-2 text-xs font-extrabold uppercase text-slate-500">
+                {column}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row, rowIndex) => (
+            <tr key={rowIndex} className="odd:bg-white even:bg-slate-50/60">
+              {columns.map(column => (
+                <td key={`${rowIndex}-${column}`} className="max-w-56 truncate border-b border-slate-100 px-3 py-2 text-slate-700">
+                  {String(row[column] ?? '')}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 function ChartCanvas({ chart, interactive, filterClass, expanded = false }: { chart?: AnalysisChart; interactive: boolean; filterClass: string; expanded?: boolean }) {
   if (!chart) {
     return (
@@ -235,6 +285,8 @@ export default function DataAnalysisResult({ value }: { value: string }) {
   const chart = charts[activeChart] || charts[0];
   const filterClass = chartColors.find(item => item.id === filter)?.className || '';
   const exports = data?.exports?.filter(item => item.url) || [];
+  const spreadsheetExport = getSpreadsheetExport(data);
+  const isSpreadsheet = Boolean(spreadsheetExport && charts.length === 0);
   const warnings = [...(data?.warnings || []), ...(dataset?.warnings || [])].filter(Boolean);
 
   useEffect(() => {
@@ -278,6 +330,58 @@ export default function DataAnalysisResult({ value }: { value: string }) {
   }
 
   const title = chart?.title || data.title || dataset?.name || 'Data Analysis';
+  if (isSpreadsheet) {
+    const spreadsheetTitle = data.title || dataset?.name || 'Spreadsheet Preview';
+    const spreadsheetFullscreen = expanded ? (
+      <div className="fixed inset-0 z-[999999] bg-white">
+        <div className="flex h-12 items-center justify-between border-b border-slate-100 px-4">
+          <div className="flex min-w-0 items-center gap-3">
+            <button type="button" onClick={() => setExpanded(false)} title="Close" aria-label="Close" className="inline-flex h-9 w-9 items-center justify-center rounded-full text-slate-800 transition hover:bg-slate-100">
+              <X className="h-5 w-5" />
+            </button>
+            <h2 className="truncate text-base font-extrabold text-slate-950">{spreadsheetTitle}</h2>
+          </div>
+          <div className="flex items-center gap-1">
+            <IconButton title="Download Spreadsheet" onClick={() => downloadUrl(spreadsheetExport?.url || '', `${spreadsheetTitle}.xlsx`)}>
+              <Download className="h-4 w-4" />
+            </IconButton>
+          </div>
+        </div>
+        <SpreadsheetPreview data={data} expanded />
+      </div>
+    ) : null;
+
+    return (
+      <div className="not-prose my-4 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
+        <div className="flex items-center justify-between gap-3 px-4 py-3">
+          <div className="flex min-w-0 items-center gap-2">
+            <FileSpreadsheet className="h-4 w-4 shrink-0 text-slate-500" />
+            <h3 className="truncate text-base font-extrabold text-slate-950">{spreadsheetTitle}</h3>
+          </div>
+          <div className="flex shrink-0 items-center gap-1">
+            <IconButton title="Download Spreadsheet" onClick={() => downloadUrl(spreadsheetExport?.url || '', `${spreadsheetTitle}.xlsx`)}>
+              <Download className="h-4 w-4" />
+            </IconButton>
+            <IconButton title="Expand Preview" onClick={() => setExpanded(true)}>
+              <Maximize2 className="h-4 w-4" />
+            </IconButton>
+          </div>
+        </div>
+        <div className="border-t border-slate-100">
+          <SpreadsheetPreview data={data} />
+        </div>
+        {warnings.length > 0 && (
+          <div className="border-t border-slate-100 px-4 py-3">
+            <div className="rounded-lg bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-700">
+              {warnings.join(' ')}
+            </div>
+          </div>
+        )}
+        {spreadsheetFullscreen && createPortal(spreadsheetFullscreen, document.body)}
+      </div>
+    );
+  }
+
   const fullscreen = expanded ? (
     <div className="fixed inset-0 z-[999999] bg-white">
       <div className="flex h-12 items-center justify-between border-b border-slate-100 px-4">

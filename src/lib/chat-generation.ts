@@ -582,9 +582,9 @@ const getToolDecisionInstruction = (codeAnalysisEnabled: boolean, manualSearch: 
   manualSearch ? 'The user manually enabled Search, so useSearch must be true.' : 'If the request can be answered from conversation context or stable general knowledge, do not use Search.',
   'Prefer no tool for greetings, translation, writing, brainstorming, coding help, explanations, or local reasoning unless the user explicitly asks for current external facts.',
   'Use Search only for web fact-finding tasks such as "find the latest...", "carikan data terbaru...", company profiles, news, product information, or source-backed summaries when no numeric computation or chart is requested.',
-  'Use Code Analysis only for attached files or explicit computation/charting over data that is already available in the conversation.',
+  'Use Code Analysis only for attached files, explicit computation/charting over data that is already available in the conversation, or spreadsheet/table generation such as Excel, XLSX, workbook, formulas, pivot tables, and formatted data tables.',
   'Use both Search and Code Analysis when the user asks for analysis, visualization, charting, forecasting, or prediction based on current web facts, such as stock prices, crypto prices, market trends, exchange rates, commodity prices, or recent public datasets.',
-  'Examples: "visualisasi harga saham B ke depannya" => both true; "carikan berita terbaru saham B" => Search true, Code Analysis false; "analisis CSV ini dan buat grafik" => Search false, Code Analysis true; "siapa CEO terbaru X?" => Search true, Code Analysis false.',
+  'Examples: "visualisasi harga saham B ke depannya" => both true; "carikan berita terbaru saham B" => Search true, Code Analysis false; "analisis CSV ini dan buat grafik" => Search false, Code Analysis true; "buatkan tabel Excel dengan rumus" => Search false, Code Analysis true; "siapa CEO terbaru X?" => Search true, Code Analysis false.',
   'Never ask the user which tool to use.'
 ].join('\n');
 
@@ -833,6 +833,8 @@ const getAnalysisCodeInstruction = (files: AttachedDataFile[], requestedCharts: 
   'The code must be authored specifically for the user request, not a generic template.',
   'Available Python libraries: pandas as pd, numpy as np, matplotlib.pyplot as plt, seaborn as sns, plotly.express as px.',
   'The runtime already provides these variables: dataframes, df, input_files, output_dir, save_current_matplotlib_chart(title, chart_type), save_plotly_chart(fig, title, chart_type).',
+  'For Excel, spreadsheet, workbook, or table requests, create a polished tabular workbook instead of a chart unless the user also asks for a chart.',
+  'For spreadsheet requests, use save_excel_workbook(file_name, sheets) to save an .xlsx artifact. Use formulas in the workbook when totals, averages, rates, projections, or summary calculations are useful.',
   'If a missing Python package is necessary, call install_package("package-name") before importing it. Prefer the available libraries first.',
   'Use current pandas offset aliases such as ME, QE, and YE instead of deprecated M, Q, or Y.',
   'Infer the user language from the latest request and use that language for chart titles, axis labels, legends, annotations, and printed summaries when possible.',
@@ -856,8 +858,9 @@ const getFinalAnalysisInstruction = (analysisContext: string) => [
   'Do not paste the Python code.',
   'Do not repeat auto-generated technical insight bullets verbatim.',
   'Explain the meaningful result, caveats, and chart interpretation briefly.',
-  'Put the exact token {{DEEPCHAT_ANALYSIS_CHART}} where the chart should appear in the response. Place it after a natural setup sentence when helpful.',
-  'Do not mention PDF, Excel, downloadable reports, or generated file summaries. The chart UI already handles chart download.',
+  'Put the exact token {{DEEPCHAT_ANALYSIS_CHART}} where the chart, spreadsheet preview, or generated table should appear in the response. Place it after a natural setup sentence when helpful.',
+  'Do not mention PDF. If the result is a spreadsheet, briefly say that an Excel workbook is ready and that the preview can be expanded or downloaded.',
+  'If the result is a chart, do not mention downloadable reports or generated file summaries. The chart UI already handles chart download.',
   'Do not mention View Analysis. The interface will place the View Analysis action at the end of the final content.',
   'For predictions or forecasts, state that the chart is an estimate based on available data and should not be treated as financial advice.',
   '',
