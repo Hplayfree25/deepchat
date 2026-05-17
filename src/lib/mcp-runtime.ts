@@ -617,7 +617,7 @@ const collectSearchContext = async (tools: ChatToolRuntimeItem[], prompt: string
           context: [
             `Web Search Sources from ${tool.name}`,
             sourceContext,
-            'Use these sources as current external context. Cite source numbers inline when they support factual claims.'
+            'Search instructions: treat these sources as current external context, prefer the most relevant and recent sources, and cite source numbers inline only for factual claims that are supported by the listed sources. Do not cite unsupported claims, do not invent source titles or URLs, and do not expose raw search diagnostics to the user.'
           ].join('\n\n').slice(0, MAX_SEARCH_CONTEXT_CHARS),
           sources
         };
@@ -668,6 +668,6 @@ export const buildIntegrationSystemPrompt = (servers: ChatMCPRuntimeServer[], to
     enabledServers ? `Enabled MCP servers:\n${enabledServers}` : '',
     enabledTools ? `Enabled tools:\n${enabledTools}` : '',
     context ? `Runtime context collected from enabled integrations:\n${context}` : '',
-    'Use configured integrations when they are relevant. If web search sources are present, answer directly from them and cite source numbers inline. If an integration is missing required configuration, ask the user to configure it in Settings before relying on it. Do not reveal secret values.'
+    'Use configured integrations only when they are relevant to the user request. If web search sources are present, answer directly from them, cite source numbers inline, and keep citations attached to the exact claims they support. If Code Execution context is present, use it for quantitative or file-based analysis rather than guessing calculations. If an integration is missing required configuration, ask the user to configure it in Settings before relying on it. Do not reveal secret values.'
   ].filter(Boolean).join('\n\n');
 };

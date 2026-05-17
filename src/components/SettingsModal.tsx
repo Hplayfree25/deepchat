@@ -11,7 +11,7 @@ import { getPersona, savePersona } from '@/app/persona';
 import { clearSavedMemories, deleteSavedMemory, getSavedMemories, type SavedMemory } from '@/app/memory';
 import CustomDropdown from './ui/CustomDropdown';
 import CustomModelDropdown from './ui/CustomModelDropdown';
-import geminiModels from '../../data/gemini-models.json';
+import geminiModels from '@/lib/gemini-models';
 import {
   defaultNotificationSettings,
   loadNotificationSettings,

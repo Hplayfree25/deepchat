@@ -9,8 +9,10 @@ import { createHighlighter, Highlighter } from 'shiki';
 import 'katex/dist/katex.min.css';
 import { ClientOnly } from '@/lib/utils';
 import CodePreview from '@/components/ui/CodePreview';
+import DataAnalysisResult, { DataAnalysisActions } from '@/components/ui/DataAnalysisResult';
 
 let highlighterPromise: Promise<Highlighter> | null = null;
+const ANALYSIS_ACTIONS_INLINE_PREFIX = 'deepchat-analysis-actions:';
 
 interface MarkdownRendererProps {
   content: string;
@@ -55,12 +57,18 @@ const MarkdownRenderer = React.memo(function MarkdownRenderer({ content, isStrea
           rehypePlugins={[rehypeKatex]}
           components={{
             code({ className, children, ...props }: React.ComponentProps<'code'>) {
-              const match = /language-(\w+)/.exec(className || '');
+              const match = /language-([\w-]+)/.exec(className || '');
               const language = match ? match[1] : '';
               const isInline = !match;
 
               if (!isInline) {
                 return <CodeBlock language={language} value={String(children).replace(/\n$/, '')} highlighter={highlighter} isStreaming={isStreaming} />;
+              }
+
+              const inlineValue = getChildrenText(children);
+              if (inlineValue.startsWith(ANALYSIS_ACTIONS_INLINE_PREFIX)) {
+                const value = decodeAnalysisPayload(inlineValue.slice(ANALYSIS_ACTIONS_INLINE_PREFIX.length));
+                return value ? <DataAnalysisActions value={value} /> : null;
               }
 
               return (
@@ -289,7 +297,21 @@ function getSourceHost(url: string) {
   }
 }
 
+function decodeAnalysisPayload(value: string) {
+  try {
+    const normalized = value.replace(/-/g, '+').replace(/_/g, '/');
+    const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, '=');
+    const binary = window.atob(padded);
+    const bytes = Uint8Array.from(binary, char => char.charCodeAt(0));
+    return new TextDecoder().decode(bytes);
+  } catch {
+    return '';
+  }
+}
+
 function CodeBlock({ language, value, highlighter, isStreaming }: { language: string, value: string, highlighter: Highlighter | null, isStreaming: boolean }) {
+  if (language === 'deepchat-analysis') return <DataAnalysisResult value={value} />;
+  if (language === 'deepchat-analysis-actions') return <DataAnalysisActions value={value} />;
   return <CodePreview language={language} value={value} highlighter={highlighter} isStreaming={isStreaming} />;
 }
 

@@ -212,10 +212,10 @@ const getDuckDuckGoRuntimeItem = (): ToolRuntimeItem => ({
 });
 
 const getEnabledSearchRuntimeItems = (settings: ToolSettings, requested: boolean): ToolRuntimeItem[] => {
-  if (!settings.searchEnabled && !requested) return [];
+  if (!requested) return [];
   const installed = getInstalledSearchRuntimeItems(settings);
   if (installed.length > 0) return installed;
-  return requested ? [getDuckDuckGoRuntimeItem()] : [];
+  return [getDuckDuckGoRuntimeItem()];
 };
 
 export const getEnabledToolRuntimeItems = (webSearchRequested = false): ToolRuntimeItem[] => {
@@ -235,4 +235,19 @@ export const getEnabledToolRuntimeItems = (webSearchRequested = false): ToolRunt
     });
   }
   return runtimeItems;
+};
+
+export const shouldUseSmartSearch = (prompt: string) => {
+  const text = prompt.replace(/\s+/g, ' ').trim().toLowerCase();
+  if (!text) return false;
+  if (/\b(without|no|disable|skip|avoid)\s+(web|internet|search|browsing|sources?)\b/.test(text)) return false;
+  if (/\b(do not|don't|dont)\s+(search|browse|look up|use the web|use internet)\b/.test(text)) return false;
+  if (/\boffline answer\b|\bfrom memory\b|\bno sources?\b/.test(text)) return false;
+  if (/\b(tanpa|jangan|tidak perlu|nggak perlu|ga perlu|gak perlu)\s+(internet|web|search|cari|pencarian|browse|browsing)\b/.test(text)) return false;
+  const directIntent = /\b(web search|search online|look up|browse|google|research online|source|sources|cite|citation|fact check|carikan|telusuri|riset web|sumber|referensi|validasi sumber)\b/;
+  const freshnessIntent = /\b(latest|newest|current|recent|today|this week|this month|this year|now|live|real time|up to date|terbaru|terkini|saat ini|sekarang|hari ini|minggu ini|bulan ini|tahun ini|update|berita)\b/;
+  const marketIntent = /\b(price|prices|pricing|stock|buy|deal|discount|promo|coupon|release date|harga|stok|tersedia|beli|jual|diskon|rilis)\b/;
+  const comparisonIntent = /\b(compare|comparison|versus|vs|best|top|recommended|recommendation|alternatives|bandingkan|perbandingan|terbaik|rekomendasi|alternatif)\b/;
+  const domainHint = /\b[a-z0-9-]+\.(com|co|id|net|org|io|dev|app|ai|co\.id)\b/;
+  return directIntent.test(text) || freshnessIntent.test(text) || marketIntent.test(text) || domainHint.test(text) || comparisonIntent.test(text) && freshnessIntent.test(text);
 };

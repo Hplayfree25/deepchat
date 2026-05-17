@@ -132,6 +132,16 @@ html[data-appearance="dark"] .code-preview-code ::selection {
   will-change: transform;
 }
 
+.deepchat-analysis-shell {
+  transform-origin: 18px 18px;
+  animation: deepchat-analysis-shell-in 360ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.deepchat-analysis-dropdown {
+  transform-origin: top center;
+  animation: deepchat-analysis-dropdown-in 420ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
 @keyframes deepchat-code-spin {
   from {
     transform: rotate(0deg);
@@ -139,6 +149,49 @@ html[data-appearance="dark"] .code-preview-code ::selection {
 
   to {
     transform: rotate(360deg);
+  }
+}
+
+@keyframes deepchat-analysis-shell-in {
+  0% {
+    opacity: 0;
+    transform: translateY(8px) scale(0.96);
+    filter: blur(4px);
+  }
+
+  62% {
+    opacity: 1;
+    transform: translateY(-1px) scale(1.012);
+    filter: blur(0);
+  }
+
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    filter: blur(0);
+  }
+}
+
+@keyframes deepchat-analysis-dropdown-in {
+  0% {
+    opacity: 0;
+    clip-path: inset(0 0 100% 0 round 14px);
+    transform: translateY(-8px) scaleY(0.94);
+    filter: blur(3px);
+  }
+
+  55% {
+    opacity: 1;
+    clip-path: inset(0 0 0 0 round 14px);
+    transform: translateY(1px) scaleY(1.015);
+    filter: blur(0);
+  }
+
+  100% {
+    opacity: 1;
+    clip-path: inset(0 0 0 0 round 14px);
+    transform: translateY(0) scaleY(1);
+    filter: blur(0);
   }
 }
 

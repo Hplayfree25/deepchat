@@ -6,8 +6,7 @@ import {
   getVertexPublisherModelsUrl,
   normalizeProvider
 } from '@/lib/llm';
-import fs from 'fs/promises';
-import path from 'path';
+import { GEMINI_MODELS } from '@/lib/gemini-models';
 
 type ModelItem = {
   id: string;
@@ -42,11 +41,6 @@ type GeminiClientOptions = {
   httpOptions?: {
     baseUrl: string;
   };
-};
-
-const readStaticGeminiModels = async (): Promise<ModelCategory[]> => {
-  const modelsPath = path.join(process.cwd(), 'data', 'gemini-models.json');
-  return JSON.parse(await fs.readFile(modelsPath, 'utf-8')) as ModelCategory[];
 };
 
 const NVIDIA_NIM_FALLBACK_MODELS: ModelItem[] = [
@@ -203,7 +197,7 @@ export async function POST(req: Request) {
     if (p === 'gemini') {
       try {
         const { GoogleGenAI } = await import('@google/genai');
-        const staticModels = await readStaticGeminiModels();
+        const staticModels = GEMINI_MODELS;
         const aiOptions: GeminiClientOptions = { apiKey };
         if (cleanBase) {
           aiOptions.httpOptions = { baseUrl: cleanBase };
@@ -223,7 +217,7 @@ export async function POST(req: Request) {
 
         return NextResponse.json({ models: staticModels });
       } catch {
-        return NextResponse.json({ models: await readStaticGeminiModels() });
+        return NextResponse.json({ models: GEMINI_MODELS });
       }
     }
 
