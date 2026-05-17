@@ -959,6 +959,8 @@ function getCodeExecutionDisplayDetails(usage: MCPUsageItem) {
     const stdout = typeof value.stdout === 'string' ? value.stdout : '';
     const stderr = typeof value.stderr === 'string' ? value.stderr : '';
     if (usage.status === 'error') return fallback;
+    if (/Running Excel engine/i.test(stdout)) return ['Running the Excel engine.', 'Building sheets, formulas, styles, and preview values.'];
+    if (/workbook|spreadsheet|excel/i.test(stdout)) return ['Preparing the spreadsheet workbook.'];
     if (/Retrying Python analysis/i.test(stdout) || stderr.trim()) return ['Repairing the generated analysis and trying again.'];
     if (/Running Python analysis/i.test(stdout)) return ['Running calculations in the isolated Python workspace.', 'The first run can take longer while the local runtime warms up.'];
     if (/Asking the model/i.test(stdout)) return ['Planning the analysis and preparing the code.'];

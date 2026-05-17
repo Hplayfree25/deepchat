@@ -1,11 +1,12 @@
 import { randomUUID } from 'crypto';
 import { spawn } from 'child_process';
 import { existsSync } from 'fs';
-import { mkdir, stat, writeFile } from 'fs/promises';
+import { mkdir, readdir, rm, stat, unlink, writeFile } from 'fs/promises';
 import { tmpdir } from 'os';
 import { basename, delimiter, join, normalize, sep } from 'path';
 import { NextResponse } from 'next/server';
 import { getRunnerEnvironment } from '@/lib/code-runner-security';
+import { excelFormulaEngineSource } from './excel-formula-engine';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -21,10 +22,11 @@ type AnalysisPayload = {
   code?: unknown;
   displayCode?: unknown;
   requestedCharts?: unknown;
+  analysisMode?: unknown;
   files?: AttachedFileInput[];
 };
 
-const ANALYSIS_ROOT = join(process.cwd(), 'data', 'analysis');
+const ANALYSIS_ROOT = join(tmpdir(), 'deepchat', 'analysis');
 const TEMP_FILE_ROOT = join(process.cwd(), 'data', 'temp', 'file');
 const RUNTIME_ROOT = join(tmpdir(), 'deepchat', 'runtime', 'python');
 const RUNTIME_VENV_DIR = join(RUNTIME_ROOT, 'venv');
@@ -36,8 +38,12 @@ const RESULT_MARKER = '__DEEPCHAT_ANALYSIS_RESULT__';
 const DATA_EXTENSIONS = new Set(['csv', 'json', 'jsonl', 'xlsx', 'xls']);
 const PYTHON_IMPORTS = ['pandas', 'numpy', 'matplotlib', 'seaborn', 'plotly', 'openpyxl', 'sklearn', 'scipy', 'statsmodels', 'PIL', 'pyarrow', 'xlsxwriter'];
 const PIP_PACKAGES = ['pandas', 'numpy', 'matplotlib', 'seaborn', 'plotly', 'openpyxl', 'scikit-learn', 'scipy', 'statsmodels', 'pillow', 'pyarrow', 'xlsxwriter'];
+const ANALYSIS_TTL_MS = 72 * 60 * 60 * 1000;
+const ANALYSIS_MAX_RUNS = 80;
 
 let pythonStackReady = false;
+let pythonSpreadsheetStackReady = false;
+let pythonCashflowStackReady = false;
 
 const getMessage = (error: unknown) => (
   error && typeof error === 'object' && 'message' in error && typeof error.message === 'string'
@@ -65,6 +71,25 @@ const resolveAttachedFile = async (file: AttachedFileInput) => {
     path: filePath,
     size: fileStat.size
   };
+};
+
+const cleanupAnalysisWorkspace = async (keepRunId = '') => {
+  await mkdir(ANALYSIS_ROOT, { recursive: true });
+  const entries = await readdir(ANALYSIS_ROOT, { withFileTypes: true }).catch(() => []);
+  const runs = await Promise.all(entries.filter(entry => entry.isDirectory()).map(async (entry) => {
+    const runPath = normalize(join(ANALYSIS_ROOT, entry.name));
+    const info = await stat(runPath).catch(() => null);
+    return info ? { name: entry.name, path: runPath, mtimeMs: info.mtimeMs } : null;
+  }));
+  const validRuns = runs.filter((run): run is { name: string; path: string; mtimeMs: number } => Boolean(run));
+  const now = Date.now();
+  const expired = validRuns.filter(run => run.name !== keepRunId && now - run.mtimeMs > ANALYSIS_TTL_MS);
+  const overflow = validRuns
+    .filter(run => run.name !== keepRunId)
+    .sort((left, right) => right.mtimeMs - left.mtimeMs)
+    .slice(ANALYSIS_MAX_RUNS);
+  const targets = new Map([...expired, ...overflow].map(run => [run.path, run]));
+  await Promise.allSettled([...targets.values()].map(run => rm(run.path, { recursive: true, force: true })));
 };
 
 const getArtifactUrl = (runId: string, artifactName: string, download = false) => {
@@ -134,7 +159,30 @@ const getBasePythonCommand = () => {
   return candidates.find(candidate => candidate === 'python' || existsSync(candidate)) || 'python';
 };
 
-const ensurePythonDataStack = async (cwd: string) => {
+type PythonRuntimeMode = 'excel_light' | 'table' | 'chart' | 'analysis';
+
+const MODE_IMPORTS: Record<PythonRuntimeMode, string[]> = {
+  excel_light: ['openpyxl'],
+  table: ['pandas', 'numpy', 'openpyxl'],
+  chart: ['pandas', 'numpy', 'matplotlib', 'seaborn', 'plotly', 'openpyxl'],
+  analysis: PYTHON_IMPORTS
+};
+
+const MODE_PACKAGES: Record<PythonRuntimeMode, string[]> = {
+  excel_light: ['openpyxl'],
+  table: ['pandas', 'numpy', 'openpyxl'],
+  chart: ['pandas', 'numpy', 'matplotlib', 'seaborn', 'plotly', 'openpyxl'],
+  analysis: PIP_PACKAGES
+};
+
+const pythonReadyModes = new Set<PythonRuntimeMode>();
+
+const normalizeRuntimeMode = (value: unknown): PythonRuntimeMode => {
+  if (value === 'excel_light' || value === 'table' || value === 'chart' || value === 'analysis') return value;
+  return 'analysis';
+};
+
+const ensurePythonDataStack = async (cwd: string, mode: PythonRuntimeMode = 'analysis') => {
   await mkdir(RUNTIME_ROOT, { recursive: true });
   await mkdir(RUNTIME_CACHE_DIR, { recursive: true });
   await mkdir(RUNTIME_TMP_DIR, { recursive: true });
@@ -148,10 +196,12 @@ const ensurePythonDataStack = async (cwd: string) => {
   }
 
   const python = RUNTIME_VENV_PYTHON;
-  if (pythonStackReady) return python;
+  if (pythonReadyModes.has(mode) || pythonStackReady || ((mode === 'table' || mode === 'excel_light') && pythonSpreadsheetStackReady) || (mode === 'excel_light' && pythonCashflowStackReady)) return python;
+  const requiredImports = MODE_IMPORTS[mode];
+  const requiredPackages = MODE_PACKAGES[mode];
   const importCode = [
     'import importlib, json',
-    `packages = ${JSON.stringify(PYTHON_IMPORTS)}`,
+    `packages = ${JSON.stringify(requiredImports)}`,
     'missing = []',
     'for package in packages:',
     '    try:',
@@ -166,13 +216,23 @@ const ensurePythonDataStack = async (cwd: string) => {
   try {
     missing = JSON.parse(firstCheck.stdout.trim() || '[]');
   } catch {
-    missing = PYTHON_IMPORTS;
+    missing = requiredImports;
   }
   if (missing.length === 0) {
-    pythonStackReady = true;
+    pythonReadyModes.add(mode);
+    if (mode === 'excel_light') {
+      pythonCashflowStackReady = true;
+      pythonSpreadsheetStackReady = true;
+    } else if (mode === 'table') {
+      pythonSpreadsheetStackReady = true;
+    } else if (mode === 'analysis') {
+      pythonStackReady = true;
+      pythonSpreadsheetStackReady = true;
+      pythonCashflowStackReady = true;
+    }
     return python;
   }
-  const install = await runProcess(python, ['-m', 'pip', 'install', '--disable-pip-version-check', ...PIP_PACKAGES], cwd, '', 900000, runtimeEnv);
+  const install = await runProcess(python, ['-m', 'pip', 'install', '--disable-pip-version-check', ...requiredPackages], cwd, '', 900000, runtimeEnv);
   if (install.exitCode !== 0) {
     throw new Error(install.stderr || install.stdout || 'Automatic Python dependency setup failed.');
   }
@@ -180,13 +240,46 @@ const ensurePythonDataStack = async (cwd: string) => {
   try {
     missing = JSON.parse(secondCheck.stdout.trim() || '[]');
   } catch {
-    missing = PYTHON_IMPORTS;
+    missing = requiredImports;
   }
   if (missing.length > 0) {
     throw new Error(`Automatic Python dependency setup failed for: ${missing.join(', ')}`);
   }
-  pythonStackReady = true;
+  pythonReadyModes.add(mode);
+  if (mode === 'excel_light') {
+    pythonCashflowStackReady = true;
+    pythonSpreadsheetStackReady = true;
+  } else if (mode === 'table') {
+    pythonSpreadsheetStackReady = true;
+  } else if (mode === 'analysis') {
+    pythonStackReady = true;
+    pythonSpreadsheetStackReady = true;
+    pythonCashflowStackReady = true;
+  }
   return python;
+};
+
+const getPythonRuntimeManifest = async (python: string, cwd: string, mode: PythonRuntimeMode) => {
+  const packages = MODE_IMPORTS[mode];
+  const code = [
+    'import importlib.metadata as metadata, json, sys',
+    `packages = ${JSON.stringify(packages)}`,
+    'versions = {}',
+    'aliases = {"sklearn": "scikit-learn", "PIL": "pillow"}',
+    'for package in packages:',
+    '    name = aliases.get(package, package)',
+    '    try:',
+    '        versions[package] = metadata.version(name)',
+    '    except Exception:',
+    '        versions[package] = ""',
+    'print(json.dumps({"python": sys.version.split()[0], "mode": ' + JSON.stringify(mode) + ', "packages": versions}))'
+  ].join('\n');
+  const result = await runProcess(python, ['-c', code], cwd, '', 60000, getRuntimeEnv(RUNTIME_TMP_DIR));
+  try {
+    return JSON.parse(result.stdout.trim() || '{}') as Record<string, unknown>;
+  } catch {
+    return { mode, packages: {} };
+  }
 };
 
 const analysisScript = String.raw`
@@ -198,6 +291,8 @@ import importlib
 import json
 import math
 import os
+import re
+import runpy
 import subprocess
 import sys
 import traceback
@@ -205,7 +300,23 @@ import warnings
 
 warnings.filterwarnings("ignore")
 marker = "__DEEPCHAT_ANALYSIS_RESULT__"
-required = ["pandas", "numpy", "matplotlib", "seaborn", "plotly", "openpyxl", "sklearn"]
+payload = json.loads(sys.stdin.read() or "{}")
+output_dir = payload.get("outputDir") or os.getcwd()
+requested_charts = payload.get("requestedCharts") or []
+runtime_manifest = payload.get("runtimeManifest") or {}
+wants_spreadsheet = bool(payload.get("wantsSpreadsheet"))
+user_code = payload.get("code") or ""
+spreadsheet_only = wants_spreadsheet and not user_code
+prompt_text = (payload.get("prompt") or "").lower()
+cashflow_only = spreadsheet_only and not (payload.get("files") or []) and any(token in prompt_text for token in ["cashflow", "cash flow", "arus kas", "kas bisnis", "cashflow bisnis"])
+analysis_mode = payload.get("analysisMode") or ("excel_light" if cashflow_only else "table" if spreadsheet_only else "analysis")
+mode_imports = {
+    "excel_light": ["openpyxl"],
+    "table": ["pandas", "numpy", "openpyxl"],
+    "chart": ["pandas", "numpy", "matplotlib", "seaborn", "plotly", "openpyxl"],
+    "analysis": ["pandas", "numpy", "matplotlib", "seaborn", "plotly", "openpyxl", "sklearn"]
+}
+required = mode_imports.get(analysis_mode, mode_imports["analysis"])
 missing = []
 
 for package in required:
@@ -221,33 +332,48 @@ if missing:
     }))
     sys.exit(0)
 
-import matplotlib
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
-import numpy as np
-import pandas as pd
-import plotly.express as px
-import plotly.io as pio
-import seaborn as sns
-from matplotlib.backends.backend_pdf import PdfPages
-from openpyxl import load_workbook
+from openpyxl import Workbook, load_workbook
+from openpyxl.chart import BarChart, LineChart, Reference
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.worksheet.table import Table, TableStyleInfo
 from openpyxl.utils import get_column_letter
+from deepchat_excel_formula_engine import evaluate_cell
 
-try:
-    from sklearn.cluster import KMeans
-    from sklearn.preprocessing import StandardScaler
+if analysis_mode == "excel_light":
     has_sklearn = True
-except Exception:
+elif analysis_mode == "table":
+    import numpy as np
+    import pandas as pd
+    has_sklearn = True
+elif analysis_mode == "chart":
+    import numpy as np
+    import pandas as pd
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    import seaborn as sns
+    import plotly.express as px
+    import plotly.io as pio
     has_sklearn = False
-
-payload = json.loads(sys.stdin.read() or "{}")
-output_dir = payload.get("outputDir") or os.getcwd()
-requested_charts = payload.get("requestedCharts") or []
-wants_spreadsheet = bool(payload.get("wantsSpreadsheet"))
+    sns.set_theme(style="whitegrid", palette="deep")
+else:
+    import numpy as np
+    import pandas as pd
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    import plotly.express as px
+    import plotly.io as pio
+    import seaborn as sns
+    from matplotlib.backends.backend_pdf import PdfPages
+    try:
+        from sklearn.cluster import KMeans
+        from sklearn.preprocessing import StandardScaler
+        has_sklearn = True
+    except Exception:
+        has_sklearn = False
+    sns.set_theme(style="whitegrid", palette="deep")
 os.makedirs(output_dir, exist_ok=True)
-sns.set_theme(style="whitegrid", palette="deep")
 palette = ["#2f7ed8", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd", "#17becf"]
 
 allowed_read_roots = set()
@@ -359,9 +485,10 @@ def clean_value(value):
         if math.isnan(value) or math.isinf(value):
             return None
         return value
-    if isinstance(value, (np.integer,)):
+    np_module = globals().get("np")
+    if np_module is not None and isinstance(value, (np_module.integer,)):
         return int(value)
-    if isinstance(value, (np.floating,)):
+    if np_module is not None and isinstance(value, (np_module.floating,)):
         item = float(value)
         if math.isnan(item) or math.isinf(item):
             return None
@@ -585,6 +712,10 @@ analysis_exports = []
 runtime_dataframes = {}
 
 def install_package(package):
+    package_text = str(package or "").strip()
+    if not re.match(r"^[A-Za-z0-9][A-Za-z0-9._-]*(\[[A-Za-z0-9_,.-]+\])?(==[A-Za-z0-9.*!+_-]+|>=[A-Za-z0-9.*!+_-]+|<=[A-Za-z0-9.*!+_-]+)?$", package_text):
+        raise ValueError("Package name is not allowed.")
+    package = package_text
     result = subprocess.run([sys.executable, "-m", "pip", "install", package], capture_output=True, text=True, timeout=180)
     if result.returncode != 0:
         raise RuntimeError((result.stderr or result.stdout or "Package installation failed").strip())
@@ -613,6 +744,124 @@ def save_plotly_chart(fig, title="Interactive Analysis Chart", chart_type="chart
     html = save_html(file_key, fig)
     analysis_charts.append({"title": title, "type": chart_type, "staticName": "", "interactiveName": html})
     return html
+
+def workbook_color(value):
+    if getattr(value, "fill_type", None) is None:
+        return ""
+    color = getattr(value, "fgColor", None)
+    rgb = getattr(color, "rgb", None)
+    if isinstance(rgb, str) and len(rgb) in [6, 8]:
+        return "#" + rgb[-6:]
+    return ""
+
+def workbook_cell_value(cell):
+    value = cell.value
+    if value is None:
+        return ""
+    if hasattr(value, "isoformat"):
+        return value.isoformat()
+    return value
+
+def workbook_text_color(value):
+    color = getattr(value, "color", None)
+    rgb = getattr(color, "rgb", None)
+    if isinstance(rgb, str) and len(rgb) in [6, 8]:
+        return "#" + rgb[-6:]
+    return ""
+
+def workbook_chart_title(chart):
+    title = getattr(chart, "title", None)
+    try:
+        rich = getattr(title, "tx", None)
+        rich = getattr(rich, "rich", None)
+        paragraphs = getattr(rich, "p", None) or []
+        parts = []
+        for paragraph in paragraphs:
+            for run in getattr(paragraph, "r", None) or []:
+                text = getattr(run, "t", "")
+                if text:
+                    parts.append(str(text))
+        return " ".join(parts).strip()
+    except Exception:
+        return ""
+    return ""
+
+def workbook_charts(sheet):
+    charts = []
+    for index, chart in enumerate(getattr(sheet, "_charts", []) or []):
+        anchor = getattr(chart, "anchor", None)
+        marker = getattr(anchor, "_from", None)
+        row = int(getattr(marker, "row", 0) or 0) + 1
+        column = int(getattr(marker, "col", 0) or 0) + 1
+        charts.append({
+            "title": workbook_chart_title(chart) or "Chart " + str(index + 1),
+            "type": chart.__class__.__name__,
+            "anchor": get_column_letter(max(column, 1)) + str(max(row, 1))
+        })
+    return charts
+
+def build_workbook_preview(path, file_name, max_rows=120, max_columns=36):
+    if not path or not os.path.exists(path):
+        return None
+    workbook = load_workbook(path, data_only=False)
+    values_workbook = load_workbook(path, data_only=True)
+    sheets = []
+    selected_cell = "A1"
+    selected_value = ""
+    for sheet in workbook.worksheets:
+        actual_rows = max(sheet.max_row or 1, 1)
+        actual_columns = max(sheet.max_column or 1, 1)
+        preview_rows = min(actual_rows, max_rows)
+        preview_columns = min(actual_columns, max_columns)
+        cells = []
+        column_widths = {}
+        for column_index in range(1, preview_columns + 1):
+            letter = get_column_letter(column_index)
+            width = sheet.column_dimensions[letter].width or 10
+            column_widths[str(column_index)] = min(max(float(width) * 8, 64), 220)
+        for row in sheet.iter_rows(min_row=1, max_row=preview_rows, min_col=1, max_col=preview_columns):
+            for cell in row:
+                raw = workbook_cell_value(cell)
+                formula = raw if isinstance(raw, str) and raw.startswith("=") else ""
+                display = evaluate_cell(workbook, values_workbook, sheet.title, cell.coordinate) if formula else raw
+                if display == "":
+                    continue
+                if selected_value == "":
+                    selected_cell = cell.coordinate
+                    selected_value = display
+                cells.append({
+                    "row": cell.row,
+                    "column": cell.column,
+                    "address": cell.coordinate,
+                    "value": raw,
+                    "formula": formula,
+                    "displayValue": display,
+                    "bold": bool(cell.font.bold),
+                    "italic": bool(cell.font.italic),
+                    "textColor": workbook_text_color(cell.font),
+                    "fillColor": workbook_color(cell.fill),
+                    "horizontalAlign": cell.alignment.horizontal or "",
+                    "numberFormat": cell.number_format or ""
+                })
+        sheets.append({
+            "name": sheet.title,
+            "rowCount": actual_rows,
+            "columnCount": actual_columns,
+            "previewRowCount": preview_rows,
+            "previewColumnCount": preview_columns,
+            "columnWidths": column_widths,
+            "mergedRanges": [str(item) for item in sheet.merged_cells.ranges],
+            "charts": workbook_charts(sheet),
+            "cells": cells
+        })
+    active = workbook.active.title if workbook.worksheets else ""
+    return clean_value({
+        "fileName": file_name,
+        "activeSheet": active,
+        "selectedCell": selected_cell,
+        "displayValue": selected_value,
+        "sheets": sheets
+    })
 
 def style_excel_workbook(path):
     workbook = load_workbook(path)
@@ -652,6 +901,161 @@ def style_excel_workbook(path):
                     cell.fill = total_fill
                     cell.font = Font(bold=True)
     workbook.save(path)
+
+def clean_sheet_name(value, fallback="Sheet"):
+    text = "".join(ch for ch in str(value or fallback) if ch not in ["\\", "/", "*", "?", ":", "[", "]"]).strip()
+    return (text or fallback)[:31]
+
+def add_sheet_table(sheet, style="TableStyleMedium4"):
+    if sheet.max_row < 2 or sheet.max_column < 1:
+        return
+    ref = "A1:" + get_column_letter(sheet.max_column) + str(sheet.max_row)
+    table_name = "".join(ch for ch in sheet.title.title() if ch.isalnum())[:20] or "Table"
+    suffix = 1
+    unique_name = table_name
+    while unique_name in sheet.tables:
+        suffix += 1
+        unique_name = table_name + str(suffix)
+    table = Table(displayName=unique_name, ref=ref)
+    table.tableStyleInfo = TableStyleInfo(name=style, showFirstColumn=False, showLastColumn=False, showRowStripes=True, showColumnStripes=False)
+    sheet.add_table(table)
+
+def finish_prompt_workbook(workbook):
+    header_fill = PatternFill("solid", fgColor="107C41")
+    header_font = Font(color="FFFFFF", bold=True)
+    soft_fill = PatternFill("solid", fgColor="E2F0D9")
+    for sheet in workbook.worksheets:
+        sheet.freeze_panes = "A2"
+        for cell in sheet[1]:
+            cell.fill = header_fill
+            cell.font = header_font
+            cell.alignment = Alignment(horizontal="center", vertical="center")
+        for row in sheet.iter_rows():
+            for cell in row:
+                cell.alignment = Alignment(vertical="center", horizontal=cell.alignment.horizontal)
+        for column_cells in sheet.columns:
+            values = [str(cell.value) if cell.value is not None else "" for cell in column_cells]
+            width = min(max([len(value) for value in values] + [10]) + 2, 36)
+            sheet.column_dimensions[get_column_letter(column_cells[0].column)].width = width
+        for row_index in range(2, sheet.max_row + 1):
+            if row_index % 2 == 0:
+                for cell in sheet[row_index]:
+                    if not cell.fill or not cell.fill.fill_type:
+                        cell.fill = soft_fill
+        add_sheet_table(sheet)
+
+def save_prompt_cashflow_workbook(file_name="template_cashflow_12_bulan.xlsx"):
+    safe_name = "".join(ch for ch in file_name if ch.isalnum() or ch in ["-", "_", "."]).strip(".") or "template_cashflow_12_bulan.xlsx"
+    if not safe_name.lower().endswith(".xlsx"):
+        safe_name += ".xlsx"
+    workbook = Workbook()
+    summary = workbook.active
+    summary.title = "Ringkasan"
+    months = ["Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Agu", "Sep", "Okt", "Nov", "Des"]
+    cashflow = workbook.create_sheet("Cashflow")
+    expense = workbook.create_sheet("Analisis Pengeluaran")
+    projection = workbook.create_sheet("Proyeksi")
+    assumptions = workbook.create_sheet("Asumsi & Cara Pakai")
+    summary.append(["Metrik", "Nilai"])
+    summary_rows = [
+        ["Total Pemasukan Tahunan", "=SUM(Cashflow!B2:M2)"],
+        ["Total Pengeluaran Tahunan", "=SUM(Cashflow!B3:M3)"],
+        ["Arus Kas Bersih Tahunan", "=SUM(Cashflow!B4:M4)"],
+        ["Saldo Awal Tahun", "=Cashflow!B5"],
+        ["Saldo Akhir Tahun", "=Cashflow!M6"],
+        ["Rata-rata Pemasukan Bulanan", "=AVERAGE(Cashflow!B2:M2)"],
+        ["Rata-rata Pengeluaran Bulanan", "=AVERAGE(Cashflow!B3:M3)"],
+        ["Rata-rata Arus Kas Bersih Bulanan", "=AVERAGE(Cashflow!B4:M4)"],
+        ["Margin Kas Bersih Rata-rata", "=AVERAGE(Cashflow!B4:M4)/AVERAGE(Cashflow!B2:M2)"],
+        ["Bulan Saldo Akhir Tertinggi", "=INDEX(Cashflow!B1:M1,MATCH(MAX(Cashflow!B6:M6),Cashflow!B6:M6,0))"],
+        ["Bulan Saldo Akhir Terendah", "=INDEX(Cashflow!B1:M1,MATCH(MIN(Cashflow!B6:M6),Cashflow!B6:M6,0))"]
+    ]
+    for row in summary_rows:
+        summary.append(row)
+    cashflow.append(["Komponen", *months, "Total", "Rata-rata"])
+    income = [45000000, 47000000, 50000000, 52000000, 54000000, 57000000, 59000000, 61000000, 64000000, 66000000, 69000000, 72000000]
+    expense_values = [31000000, 32500000, 34000000, 35000000, 36500000, 38000000, 39500000, 41000000, 42500000, 43500000, 45000000, 47000000]
+    cashflow.append(["Pemasukan", *income, "=SUM(B2:M2)", "=AVERAGE(B2:M2)"])
+    cashflow.append(["Pengeluaran", *expense_values, "=SUM(B3:M3)", "=AVERAGE(B3:M3)"])
+    cashflow.append(["Arus Kas Bersih", *[f"={get_column_letter(index)}2-{get_column_letter(index)}3" for index in range(2, 14)], "=SUM(B4:M4)", "=AVERAGE(B4:M4)"])
+    cashflow.append(["Saldo Awal", 25000000, *[f"={get_column_letter(index - 1)}6" for index in range(3, 14)], "=B5", "=B5"])
+    cashflow.append(["Saldo Akhir", *[f"={get_column_letter(index)}5+{get_column_letter(index)}4" for index in range(2, 14)], "=M6", "=AVERAGE(B6:M6)"])
+    expense.append(["Kategori", *months, "Total", "Porsi"])
+    expense_categories = {
+        "Operasional": [12000000, 12300000, 12600000, 13000000, 13400000, 13900000, 14200000, 14600000, 15000000, 15300000, 15800000, 16200000],
+        "Marketing": [6000000, 6300000, 6900000, 7200000, 7600000, 8000000, 8300000, 8700000, 9100000, 9400000, 9800000, 10200000],
+        "Gaji": [10000000, 10200000, 10400000, 10600000, 10800000, 11000000, 11200000, 11400000, 11600000, 11800000, 12000000, 12200000],
+        "Lainnya": [3000000, 4000000, 4100000, 4200000, 4300000, 4100000, 4200000, 4300000, 4400000, 4200000, 3400000, 4400000]
+    }
+    for category, values in expense_categories.items():
+        row_index = expense.max_row + 1
+        expense.append([category, *values, f"=SUM(B{row_index}:M{row_index})", f"=N{row_index}/SUM($N$2:$N$5)"])
+    projection.append(["Bulan", "Pemasukan Proyeksi", "Pengeluaran Proyeksi", "Arus Kas Bersih", "Saldo Akhir"])
+    for index, month in enumerate(months, start=2):
+        projection.append([month, f"=Cashflow!{get_column_letter(index)}2*1.08", f"=Cashflow!{get_column_letter(index)}3*1.05", f"=B{index}-C{index}", f"=IF(ROW()=2,Cashflow!M6,D{index}+E{index-1})"])
+    assumptions.append(["Area", "Nilai"])
+    for row in [
+        ["Periode", "12 bulan"],
+        ["Pertumbuhan pemasukan proyeksi", "8%"],
+        ["Pertumbuhan pengeluaran proyeksi", "5%"],
+        ["Catatan", "Angka dapat diedit di sheet Cashflow dan rumus akan mengikuti saat dibuka di Excel."]
+    ]:
+        assumptions.append(row)
+    line_chart = LineChart()
+    line_chart.title = "Saldo Akhir Bulanan"
+    line_chart.y_axis.title = "Saldo"
+    line_chart.x_axis.title = "Bulan"
+    line_data = Reference(cashflow, min_col=2, max_col=13, min_row=6, max_row=6)
+    line_categories = Reference(cashflow, min_col=2, max_col=13, min_row=1, max_row=1)
+    line_chart.add_data(line_data, from_rows=True, titles_from_data=False)
+    line_chart.set_categories(line_categories)
+    cashflow.add_chart(line_chart, "B9")
+    bar_chart = BarChart()
+    bar_chart.title = "Pemasukan vs Pengeluaran"
+    bar_chart.y_axis.title = "Nilai"
+    bar_chart.x_axis.title = "Bulan"
+    bar_data = Reference(cashflow, min_col=2, max_col=13, min_row=2, max_row=3)
+    bar_chart.add_data(bar_data, from_rows=True, titles_from_data=True)
+    bar_chart.set_categories(line_categories)
+    cashflow.add_chart(bar_chart, "J9")
+    finish_prompt_workbook(workbook)
+    path = os.path.join(output_dir, safe_name)
+    workbook.save(path)
+    export_item = {"name": safe_name, "label": "Excel workbook", "mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"}
+    analysis_exports.append(export_item)
+    return safe_name
+
+def prompt_wants_cashflow(prompt):
+    text = (prompt or "").lower()
+    return any(token in text for token in ["cashflow", "cash flow", "arus kas", "kas bisnis", "cashflow bisnis"])
+
+def save_prompt_spreadsheet(prompt, frames):
+    if prompt_wants_cashflow(prompt):
+        return save_prompt_cashflow_workbook()
+    return save_excel_workbook("analysis-table.xlsx", frames)
+
+def generated_workbook_display_code(kind):
+    if kind == "cashflow":
+        return "\n".join([
+            "output_name = save_prompt_cashflow_workbook('template_cashflow_12_bulan.xlsx')",
+            "output_path = os.path.join(output_dir, output_name)",
+            "workbook_preview = build_workbook_preview(output_path, output_name)",
+            "print('Generated Excel workbook:', output_name)",
+            "print('Runtime mode:', analysis_mode)"
+        ])
+    return "\n".join([
+        "frames = {}",
+        "for index, source in enumerate(sources):",
+        "    source_name, dataframe = source",
+        "    dataframe.columns = [str(column) for column in dataframe.columns]",
+        "    frames['dataset_' + str(index + 1)] = dataframe",
+        "",
+        "output_name = save_prompt_spreadsheet(prompt, frames)",
+        "output_path = os.path.join(output_dir, output_name)",
+        "workbook_preview = build_workbook_preview(output_path, output_name)",
+        "print('Generated Excel workbook:', output_name)",
+        "print('Runtime mode:', analysis_mode)"
+    ])
 
 def save_excel_workbook(file_name="analysis-table.xlsx", sheets=None, include_summary=True):
     safe_name = "".join(ch for ch in file_name if ch.isalnum() or ch in ["-", "_", "."]).strip(".") or "analysis-table.xlsx"
@@ -783,6 +1187,87 @@ def export_outputs(results, frames):
         exports.append({"name": "", "label": "Excel export unavailable: " + str(error), "mimeType": ""})
     return exports
 
+def artifact_mime_type(file_name):
+    lower = file_name.lower()
+    if lower.endswith(".xlsx"):
+        return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    if lower.endswith(".csv"):
+        return "text/csv"
+    if lower.endswith(".json"):
+        return "application/json"
+    if lower.endswith(".html"):
+        return "text/html"
+    if lower.endswith(".png"):
+        return "image/png"
+    if lower.endswith(".jpg") or lower.endswith(".jpeg"):
+        return "image/jpeg"
+    if lower.endswith(".webp"):
+        return "image/webp"
+    return "application/octet-stream"
+
+def build_basic_result(name, frame, charts):
+    pd_module = globals().get("pd")
+    item = {
+        "name": name,
+        "shape": {"rows": 0, "columns": 0},
+        "columns": [],
+        "sample": [],
+        "charts": charts
+    }
+    if pd_module is not None and isinstance(frame, pd_module.DataFrame):
+        item["shape"] = {"rows": int(frame.shape[0]), "columns": int(frame.shape[1])}
+        item["columns"] = [str(column) for column in frame.columns]
+        item["sample"] = frame_sample(frame)
+    return item
+
+def discover_generated_outputs():
+    existing_exports = set()
+    exports = []
+    for item in analysis_exports:
+        name = item.get("name") or ""
+        if name:
+            existing_exports.add(name)
+        exports.append(item)
+    chart_map = {}
+    for index, chart in enumerate(analysis_charts):
+        static_name = chart.get("staticName") or ""
+        interactive_name = chart.get("interactiveName") or ""
+        key_name = static_name or interactive_name or "chart_" + str(index + 1)
+        key = os.path.splitext(os.path.basename(key_name))[0]
+        chart_map[key] = {
+            "title": chart.get("title") or "Analysis Chart",
+            "type": chart.get("type") or "chart",
+            "staticName": static_name,
+            "interactiveName": interactive_name
+        }
+    for file_name in os.listdir(output_dir):
+        lower = file_name.lower()
+        file_path = os.path.join(output_dir, file_name)
+        if not os.path.isfile(file_path):
+            continue
+        if lower in ["analysis.py", "user_analysis.py", "meta.json", "deepchat_excel_formula_engine.py"]:
+            continue
+        stem = os.path.splitext(file_name)[0]
+        if lower.endswith((".png", ".jpg", ".jpeg", ".webp")):
+            current = chart_map.get(stem, {"title": stem.replace("_", " ").title(), "type": "chart", "staticName": "", "interactiveName": ""})
+            current["staticName"] = file_name
+            chart_map[stem] = current
+        elif lower.endswith(".html"):
+            current = chart_map.get(stem, {"title": stem.replace("_", " ").title(), "type": "interactive", "staticName": "", "interactiveName": ""})
+            current["interactiveName"] = file_name
+            chart_map[stem] = current
+        elif lower.endswith((".xlsx", ".csv", ".json")) and file_name not in existing_exports:
+            exports.append({"name": file_name, "label": file_name, "mimeType": artifact_mime_type(file_name)})
+            existing_exports.add(file_name)
+    workbook_preview = None
+    for export_item in exports:
+        export_name = export_item.get("name") or ""
+        export_mime = export_item.get("mimeType") or ""
+        if export_name.lower().endswith(".xlsx") or "spreadsheet" in export_mime or "excel" in export_mime:
+            workbook_preview = build_workbook_preview(os.path.join(output_dir, export_name), export_name)
+            break
+    return list(chart_map.values()), exports, workbook_preview
+
 try:
     files = payload.get("files") or []
     prompt = payload.get("prompt") or ""
@@ -795,91 +1280,90 @@ try:
     sources = []
     for item in files:
         sources.append((item.get("name") or "dataset", read_dataset(item)))
-    if not sources:
-        sources.append(("Prompt Generated Analysis Dataset", make_prompt_dataset(prompt)))
 
     for index, source in enumerate(sources):
         source_name, original = source
         original.columns = [str(column) for column in original.columns]
-        detect_datetime_columns(original)
-        df, missing_report = impute_dataframe(original)
-        numeric, categorical, datetime_columns = describe_columns(df)
         safe_name = "dataset_" + str(index + 1)
-        stats = statistical_summary(df, numeric)
-        correlations = correlation_summary(df, numeric)
-        regression = regression_summary(df, numeric)
-        clusters = clustering_summary(df, numeric)
-        outliers = outlier_summary(df, numeric)
-        trends = trend_summary(df, numeric, datetime_columns)
-        charts = [] if user_code or wants_spreadsheet else build_charts(df, safe_name, numeric, categorical, datetime_columns)
-        name = source_name or safe_name
-        result = {
-            "name": name,
-            "shape": {"rows": int(df.shape[0]), "columns": int(df.shape[1])},
-            "columns": list(df.columns),
-            "sample": frame_sample(df),
-            "missing": missing_report,
-            "statistics": stats,
-            "correlation": correlations,
-            "regression": regression,
-            "clustering": clusters,
-            "outliers": outliers,
-            "trends": trends,
-            "charts": charts
-        }
-        results.append(result)
-        frames[safe_name] = df
+        frames[safe_name] = original
+        frames[source_name or safe_name] = original
     runtime_dataframes = frames
 
-    if user_code:
-        execution_stdout = io.StringIO()
-        scope = {
-            "pd": pd,
-            "np": np,
-            "plt": plt,
-            "sns": sns,
-            "px": px,
-            "dataframes": frames,
-            "df": next(iter(frames.values())) if frames else pd.DataFrame(),
-            "input_files": files,
-            "results": results,
-            "output_dir": output_dir,
-            "install_package": install_package,
-            "save_excel_workbook": save_excel_workbook,
-            "save_current_matplotlib_chart": save_current_matplotlib_chart,
-            "save_plotly_chart": save_plotly_chart
-        }
-        with contextlib.redirect_stdout(execution_stdout):
-            enable_filesystem_guard()
-            exec(user_code, scope)
-        printed = execution_stdout.getvalue().strip()
-        if printed:
-            stdout_items.append(printed)
-        if plt.get_fignums():
-            save_current_matplotlib_chart("AI Generated Chart", "chart")
-        if analysis_charts and results:
-            results[0]["charts"] = analysis_charts + results[0].get("charts", [])
-        if not analysis_charts and results and not wants_spreadsheet:
-            first_df = next(iter(frames.values())) if frames else pd.DataFrame()
-            numeric, categorical, datetime_columns = describe_columns(first_df)
-            results[0]["charts"] = build_charts(first_df, "dataset_1", numeric, categorical, datetime_columns)
-        if "result" in scope:
-            stdout_items.append(clean_value(scope["result"]))
+    if not user_code.strip():
+        raise ValueError("No Python code was provided by the model.")
 
-    if wants_spreadsheet and not analysis_exports:
-        save_excel_workbook("analysis-table.xlsx", frames)
-    exports = analysis_exports
+    execution_stdout = io.StringIO()
+    user_script_path = os.path.join(output_dir, "user_analysis.py")
+    with open(user_script_path, "w", encoding="utf-8") as handle:
+        handle.write(user_code)
+    scope = {
+        "os": os,
+        "json": json,
+        "math": math,
+        "re": re,
+        "Workbook": Workbook,
+        "load_workbook": load_workbook,
+        "BarChart": BarChart,
+        "LineChart": LineChart,
+        "Reference": Reference,
+        "Alignment": Alignment,
+        "Font": Font,
+        "PatternFill": PatternFill,
+        "Table": Table,
+        "TableStyleInfo": TableStyleInfo,
+        "get_column_letter": get_column_letter,
+        "dataframes": frames,
+        "input_files": files,
+        "output_dir": output_dir,
+        "install_package": install_package,
+        "save_excel_workbook": save_excel_workbook,
+        "save_current_matplotlib_chart": save_current_matplotlib_chart,
+        "save_plotly_chart": save_plotly_chart
+    }
+    if "pd" in globals():
+        scope["pd"] = pd
+        scope["df"] = next(iter(frames.values())) if frames else pd.DataFrame()
+    if "np" in globals():
+        scope["np"] = np
+    if "plt" in globals():
+        scope["plt"] = plt
+    if "sns" in globals():
+        scope["sns"] = sns
+    if "px" in globals():
+        scope["px"] = px
+    with contextlib.redirect_stdout(execution_stdout):
+        enable_filesystem_guard()
+        executed_scope = runpy.run_path(user_script_path, init_globals=scope)
+    printed = execution_stdout.getvalue().strip()
+    if printed:
+        stdout_items.append(printed)
+    if "plt" in globals() and plt.get_fignums():
+        save_current_matplotlib_chart("AI Generated Chart", "chart")
+    if "result" in executed_scope:
+        stdout_items.append(clean_value(executed_scope["result"]))
+    charts, exports, workbook_preview = discover_generated_outputs()
+    seen_frames = set()
+    for frame_name, frame in frames.items():
+        frame_key = id(frame)
+        if frame_key in seen_frames:
+            continue
+        seen_frames.add(frame_key)
+        results.append(build_basic_result(frame_name, frame, charts if not results else []))
+    if not results:
+        results.append({"name": "Generated Output", "shape": {"rows": 0, "columns": 0}, "columns": [], "sample": [], "charts": charts})
     response = {
         "success": True,
-        "title": "Spreadsheet Preview" if wants_spreadsheet else "Data Analysis",
+        "title": "Excel Workbook" if wants_spreadsheet else "Data Analysis",
         "prompt": prompt,
         "datasets": results,
         "exports": exports,
+        "workbookPreview": workbook_preview,
+        "runtime": runtime_manifest,
         "stdout": stdout_items,
-        "warnings": [] if has_sklearn else ["scikit-learn is unavailable, so clustering was skipped."],
+        "warnings": [] if has_sklearn or analysis_mode != "analysis" else ["scikit-learn is unavailable, so clustering was skipped."],
         "execution": {
             "code": display_code,
-            "stdout": "\n".join([str(item) for item in stdout_items]) or "Generated " + str(sum(len(result.get("charts", [])) for result in results)) + " chart(s).",
+            "stdout": "\n".join([str(item) for item in stdout_items]) or "Python analysis completed.",
             "stderr": ""
         }
     }
@@ -945,10 +1429,34 @@ const parsePythonResult = (stdout: string) => {
 
 const combineOutput = (stderr: string, stdout: string) => [stderr, stdout].filter(Boolean).join('\n').trim();
 
+export async function GET(req: Request) {
+  try {
+    const url = new URL(req.url);
+    const mode = normalizeRuntimeMode(url.searchParams.get('mode'));
+    await cleanupAnalysisWorkspace();
+    const manifestDir = join(ANALYSIS_ROOT, '_manifest');
+    await mkdir(manifestDir, { recursive: true });
+    const python = await ensurePythonDataStack(manifestDir, mode);
+    const manifest = await getPythonRuntimeManifest(python, manifestDir, mode);
+    return NextResponse.json({
+      success: true,
+      ...manifest,
+      helpers: mode === 'excel_light'
+        ? ['Workbook', 'load_workbook', 'BarChart', 'LineChart', 'Reference']
+        : mode === 'table'
+          ? ['pd', 'np', 'save_excel_workbook']
+          : ['pd', 'np', 'plt', 'sns', 'px', 'save_current_matplotlib_chart', 'save_plotly_chart', 'install_package']
+    });
+  } catch (error: unknown) {
+    return NextResponse.json({ success: false, error: getMessage(error) }, { status: 500 });
+  }
+}
+
 export async function POST(req: Request) {
   try {
     const payload = await req.json() as AnalysisPayload;
     const runId = randomUUID();
+    await cleanupAnalysisWorkspace(runId);
     const outputDir = join(ANALYSIS_ROOT, runId);
     await mkdir(outputDir, { recursive: true });
     await mkdir(join(outputDir, '.tmp'), { recursive: true });
@@ -961,8 +1469,16 @@ export async function POST(req: Request) {
         python: RUNTIME_VENV_PYTHON
       }
     }, null, 2), 'utf8');
-    const python = await ensurePythonDataStack(outputDir);
+    const promptText = typeof payload.prompt === 'string' ? payload.prompt : '';
+    const payloadCode = typeof payload.code === 'string' ? payload.code : '';
+    const wantsSpreadsheet = /\b(excel|spreadsheet|workbook|xlsx|table|tabel|lembar kerja|rumus|formula|cashflow|cash flow|arus kas)\b/i.test(promptText);
+    const requestedMode = normalizeRuntimeMode(payload.analysisMode);
+    const pythonMode = requestedMode;
+    const python = await ensurePythonDataStack(outputDir, pythonMode);
+    const runtimeManifest = await getPythonRuntimeManifest(python, outputDir, pythonMode);
     const scriptPath = join(outputDir, 'analysis.py');
+    const formulaEnginePath = join(outputDir, 'deepchat_excel_formula_engine.py');
+    await writeFile(formulaEnginePath, excelFormulaEngineSource, 'utf8');
     await writeFile(scriptPath, analysisScript, 'utf8');
     const files = [];
     for (const file of Array.isArray(payload.files) ? payload.files : []) {
@@ -971,14 +1487,22 @@ export async function POST(req: Request) {
     }
     const requestedCharts = Array.isArray(payload.requestedCharts) ? payload.requestedCharts.filter((item): item is string => typeof item === 'string') : [];
     const result = await runPythonAnalysis(python, {
-      prompt: typeof payload.prompt === 'string' ? payload.prompt : '',
-      code: typeof payload.code === 'string' ? payload.code : '',
+      prompt: promptText,
+      code: payloadCode,
       displayCode: typeof payload.displayCode === 'string' ? payload.displayCode : '',
       requestedCharts,
+      analysisMode: pythonMode,
+      runtimeManifest,
       files,
-      wantsSpreadsheet: typeof payload.prompt === 'string' && /\b(excel|spreadsheet|workbook|xlsx|table|tabel|lembar kerja|rumus|formula)\b/i.test(payload.prompt),
+      wantsSpreadsheet,
       outputDir
     }, scriptPath, outputDir, req.signal);
+    await Promise.allSettled([
+      rm(join(outputDir, '.tmp'), { recursive: true, force: true }),
+      unlink(scriptPath),
+      unlink(formulaEnginePath),
+      unlink(join(outputDir, 'user_analysis.py'))
+    ]);
     const parsed = parsePythonResult(result.stdout);
     if (!parsed) {
       const output = combineOutput(result.stderr, result.stdout);

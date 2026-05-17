@@ -53,6 +53,8 @@ interface CodeAnalysisResponse {
   [key: string]: unknown;
 }
 
+type AnalysisRuntimeMode = 'excel_light' | 'table' | 'chart' | 'analysis';
+
 interface ToolDecision {
   useSearch: boolean;
   useCodeAnalysis: boolean;
@@ -508,8 +510,9 @@ const readChatResponseText = async (res: Response) => {
 };
 
 const DATA_ANALYSIS_EXTENSIONS = new Set(['csv', 'json', 'jsonl', 'xlsx', 'xls']);
-const DATA_ANALYSIS_PROMPT_PATTERN = /(analy[sz]e\s+(this\s+)?(data|dataset|file|csv|spreadsheet)|data\s+analysis|csv|excel|spreadsheet|statistics|mean|median|standard deviation|correlation|regression|cluster|clustering|pivot|grouping|aggregate|outlier|analisis\s+data|statistik|korelasi|regresi|pivot|agregasi|rata-rata|median|visuali[sz](e|ation)\s+(this\s+)?(data|dataset|csv|spreadsheet|prices?|stocks?|market|sales|revenue|harga|saham|tren|trend)|(?:chart|plot|grafik)\s+(?:of|for|data|dataset|prices?|stocks?|market|sales|revenue|harga|saham|tren|trend))/i;
+const DATA_ANALYSIS_PROMPT_PATTERN = /(analy[sz]e\s+(this\s+)?(data|dataset|file|csv|spreadsheet)|data\s+analysis|csv|excel|spreadsheet|statistics|mean|median|standard deviation|correlation|regression|cluster|clustering|pivot|grouping|aggregate|outlier|analisis\s+data|statistik|korelasi|regresi|pivot|agregasi|rata-rata|median|visuali[sz](e|ation)\s+(this\s+)?(data|dataset|csv|spreadsheet|prices?|stocks?|market|sales|revenue|harga|saham|tren|trend)|(?:chart|plot|grafik)\s+(?:of|for|data|dataset|prices?|stocks?|market|sales|revenue|harga|saham|tren|trend)|\b(?:buat(?:kan)?|bikin(?:kan)?|generate|create)\b[\s\S]{0,120}\b(?:chart|plot|grafik|visualisasi)\b)/i;
 const CURRENT_MARKET_ANALYSIS_PATTERN = /((stock|stocks|ticker|market|crypto|coin|forex|exchange rate|price|prices|saham|bursa|emiten|kripto|koin|kurs|harga).*(visuali[sz]e|visualization|chart|plot|grafik|forecast|predict|prediction|projection|trend|outlook|analy[sz]e|analysis|prediksi|proyeksi|tren|analisis|kedepan|ke depan|mendatang))|((visuali[sz]e|visualization|chart|plot|grafik|forecast|predict|prediction|projection|trend|outlook|analy[sz]e|analysis|prediksi|proyeksi|tren|analisis).*(stock|stocks|ticker|market|crypto|coin|forex|exchange rate|price|prices|saham|bursa|emiten|kripto|koin|kurs|harga))/i;
+const SPREADSHEET_REQUEST_PATTERN = /\b(excel|spreadsheet|workbook|xlsx|sheet|worksheet|table|tabel|lembar kerja|rumus|formula|cashflow|cash flow|arus kas)\b/i;
 
 const getLatestUserMessage = (messages: ChatApiMessage[]) => [...messages].reverse().find(message => message.role === 'user');
 
@@ -536,6 +539,17 @@ const shouldUseCodeAnalysis = (message: ChatApiMessage | undefined) => {
   const files = normalizeAttachedDataFiles(message.attachedFiles);
   const content = message.content || '';
   return files.length > 0 || DATA_ANALYSIS_PROMPT_PATTERN.test(content) || CURRENT_MARKET_ANALYSIS_PATTERN.test(content);
+};
+
+const isSpreadsheetAnalysisRequest = (message: ChatApiMessage | undefined) => Boolean(message && SPREADSHEET_REQUEST_PATTERN.test(message.content || ''));
+
+const getAnalysisRuntimeMode = (message: ChatApiMessage | undefined, requestedCharts: string[]): AnalysisRuntimeMode => {
+  const content = message?.content || '';
+  const hasFiles = normalizeAttachedDataFiles(message?.attachedFiles).length > 0;
+  if (isSpreadsheetAnalysisRequest(message)) return 'table';
+  if (requestedCharts.length > 0 || /\b(chart|plot|grafik|visuali[sz]|visualisasi|tren|trend)\b/i.test(content)) return 'chart';
+  if (/\b(regression|regresi|cluster|clustering|forecast|predict|prediction|prediksi|proyeksi|statistics|statistik|correlation|korelasi|outlier|model)\b/i.test(content)) return 'analysis';
+  return hasFiles ? 'table' : 'analysis';
 };
 
 const shouldRequestWebSearch = (message: ChatApiMessage | undefined) => {
@@ -577,12 +591,12 @@ const getToolDecisionInstruction = (codeAnalysisEnabled: boolean, manualSearch: 
   'You are DeepChat Tool Router. Choose which runtime tools should run before the assistant answers.',
   'Return only compact JSON with this exact shape: {"useSearch":boolean,"useCodeAnalysis":boolean,"reason":"short reason"}.',
   'Available tools:',
-  'Search: use when the user asks to find, look up, verify, cite sources, browse, check latest/current/recent information, prices, availability, news, public people or organizations, product specs, releases, or any facts likely to change. Search can also be used with code analysis if fresh web data must be gathered first.',
-  codeAnalysisEnabled ? 'Code Analysis: use only for quantitative or tabular work such as CSV, Excel, JSON datasets, statistics, aggregation, grouping, correlation, regression, charts, plots, projections, or calculations that benefit from Python. Do not use it just because the user says "data" when they mean information from the web.' : 'Code Analysis is disabled, so useCodeAnalysis must be false.',
+  'Search: finds fresh web facts and returns source-aware context. Use it for current/latest/recent information, prices, availability, news, public people or organizations, product specs, releases, citations, and facts likely to change.',
+  codeAnalysisEnabled ? 'Code Analysis: creates real Python-backed results, charts, downloadable Excel workbooks, spreadsheet previews, formulas, formatted tables, projections, calculations, statistics, aggregations, and dataset analysis. If the user asks to make an Excel/XLSX/workbook/table with formulas or styling, use Code Analysis.' : 'Code Analysis is disabled, so useCodeAnalysis must be false.',
   manualSearch ? 'The user manually enabled Search, so useSearch must be true.' : 'If the request can be answered from conversation context or stable general knowledge, do not use Search.',
   'Prefer no tool for greetings, translation, writing, brainstorming, coding help, explanations, or local reasoning unless the user explicitly asks for current external facts.',
   'Use Search only for web fact-finding tasks such as "find the latest...", "carikan data terbaru...", company profiles, news, product information, or source-backed summaries when no numeric computation or chart is requested.',
-  'Use Code Analysis only for attached files, explicit computation/charting over data that is already available in the conversation, or spreadsheet/table generation such as Excel, XLSX, workbook, formulas, pivot tables, and formatted data tables.',
+  'Use Code Analysis for attached files, explicit computation/charting over data that is already available in the conversation, or spreadsheet/table generation such as Excel, XLSX, workbook, formulas, pivot tables, and formatted data tables.',
   'Use both Search and Code Analysis when the user asks for analysis, visualization, charting, forecasting, or prediction based on current web facts, such as stock prices, crypto prices, market trends, exchange rates, commodity prices, or recent public datasets.',
   'Examples: "visualisasi harga saham B ke depannya" => both true; "carikan berita terbaru saham B" => Search true, Code Analysis false; "analisis CSV ini dan buat grafik" => Search false, Code Analysis true; "buatkan tabel Excel dengan rumus" => Search false, Code Analysis true; "siapa CEO terbaru X?" => Search true, Code Analysis false.',
   'Never ask the user which tool to use.'
@@ -633,6 +647,7 @@ const decideToolsWithAI = async (task: ChatGenerationTask, latestUserMessage: Ch
 const decideTools = async (task: ChatGenerationTask, latestUserMessage: ChatApiMessage | undefined): Promise<ToolDecision> => {
   const fallback = getHeuristicToolDecision(latestUserMessage);
   if (!latestUserMessage) return fallback;
+  if (fallback.useCodeAnalysis) return fallback;
   if (latestUserMessage.webSearchEnabled === true) {
     const decision = await decideToolsWithAI(task, latestUserMessage, fallback);
     return { ...decision, useSearch: true, source: 'manual' };
@@ -683,13 +698,26 @@ const isUsablePythonCode = (code: string) => {
 
 const compactAnalysisContext = (data: CodeAnalysisResponse) => {
   const datasets = Array.isArray(data.datasets) ? data.datasets.slice(0, 3) : [];
+  const compactDatasets = datasets.map(item => {
+    if (!isRecord(item)) return item;
+    return {
+      name: item.name,
+      shape: item.shape,
+      columns: Array.isArray(item.columns) ? item.columns.slice(0, 24) : item.columns,
+      sample: Array.isArray(item.sample) ? item.sample.slice(0, 5) : item.sample,
+      insights: Array.isArray(item.insights) ? item.insights.slice(0, 6) : item.insights,
+      warnings: item.warnings,
+      charts: Array.isArray(item.charts) ? item.charts.map(chart => isRecord(chart) ? { title: chart.title, type: chart.type } : chart).slice(0, 8) : []
+    };
+  });
   return JSON.stringify({
     success: data.success,
     error: data.error,
-    datasets,
-    charts: datasets.flatMap(item => isRecord(item) && Array.isArray(item.charts) ? item.charts : []),
-    execution: data.execution
-  }).slice(0, 14000);
+    title: data.title,
+    datasets: compactDatasets,
+    exports: Array.isArray(data.exports) ? data.exports.map(item => isRecord(item) ? { label: item.label, mimeType: item.mimeType } : item) : [],
+    stdout: Array.isArray(data.stdout) ? data.stdout.slice(0, 4) : data.stdout
+  }).slice(0, 9000);
 };
 
 const encodeAnalysisPayload = (value: string) => {
@@ -749,7 +777,7 @@ const stripAnalysisStreamingTokens = (text: string) => {
   return clean;
 };
 
-const streamAnalysisModel = async (task: ChatGenerationTask, messages: ChatApiMessage[], instruction: string, useSearch: boolean, options: { baseContent?: string; stripTokens?: boolean } = {}) => {
+const streamAnalysisModel = async (task: ChatGenerationTask, messages: ChatApiMessage[], instruction: string, useSearch: boolean, options: { baseContent?: string; stripTokens?: boolean; emit?: boolean } = {}) => {
   const res = await fetch('/api/chat', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -818,9 +846,11 @@ const streamAnalysisModel = async (task: ChatGenerationTask, messages: ChatApiMe
 
       if (chunk) {
         text += chunk;
-        const visibleText = options.stripTokens === false ? text : stripAnalysisStreamingTokens(text);
-        task.fullContent = [options.baseContent, visibleText].filter(Boolean).join('\n\n');
-        emitSnapshot(task, true);
+        if (options.emit !== false) {
+          const visibleText = options.stripTokens === false ? text : stripAnalysisStreamingTokens(text);
+          task.fullContent = [options.baseContent, visibleText].filter(Boolean).join('\n\n');
+          emitSnapshot(task, true);
+        }
       }
     }
   }
@@ -830,26 +860,55 @@ const streamAnalysisModel = async (task: ChatGenerationTask, messages: ChatApiMe
 
 const getAnalysisPrefaceInstruction = () => [
   'Decide whether to write an assistant preface before the data/code analysis starts.',
+  'You are running inside DeepChat, which can use Search for fresh web facts and Code Execution for Python analysis, charts, Excel workbooks, downloadable artifacts, and previews.',
   'Use the user language and the conversation context.',
-  'If a preface improves the response, write it naturally with the amount of detail that fits the request.',
+  'If a preface improves the response, write it as a confident action statement about what you will do next.',
   'If the best experience is to start analyzing silently, return no text.',
   'You may use available search context when it helps make the preface factual or grounded.',
+  'Never ask a question, offer options, request confirmation, or say you cannot directly create downloadable files.',
+  'Do not explain a manual workaround for Excel, charts, or files; the platform tool will create them after this preface.',
   'Do not claim the analysis, chart, workbook, or generated file is already finished.',
   'Do not mention internal tool names, Python code, MCP, or implementation details.',
   'Do not include markdown tables or code blocks.'
 ].join('\n');
 
-const normalizeAnalysisPreface = (text: string) => text.trim();
+const normalizeAnalysisPreface = (text: string) => {
+  const clean = text.trim();
+  if (!clean) return '';
+  if (/\?+\s*$/.test(clean)) return '';
+  if (/(tidak dapat|tidak bisa|cannot|can't|unable to|apakah anda ingin|apakah kamu ingin|do you want|would you like)/i.test(clean)) return '';
+  return clean;
+};
 
-const getAnalysisCodeInstruction = (files: AttachedDataFile[], requestedCharts: string[], useSearch: boolean, previousError = '', previousCode = '') => [
+const getRuntimeManifestText = async (mode: AnalysisRuntimeMode) => {
+  try {
+    const response = await fetch(`/api/code/analysis?mode=${encodeURIComponent(mode)}`);
+    if (!response.ok) return '';
+    const manifest = await response.json() as Record<string, unknown>;
+    return JSON.stringify({
+      mode: manifest.mode || mode,
+      python: manifest.python,
+      packages: manifest.packages,
+      helpers: manifest.helpers
+    });
+  } catch {
+    return JSON.stringify({ mode });
+  }
+};
+
+const getAnalysisCodeInstruction = (files: AttachedDataFile[], requestedCharts: string[], useSearch: boolean, runtimeMode: AnalysisRuntimeMode, runtimeManifest: string, previousError = '', previousCode = '') => [
   'You are DeepChat Code Execution. Generate Python code for a data analysis task.',
   'Return only valid JSON with this exact shape: {"code":"..."}',
   'The code must be authored specifically for the user request, not a generic template.',
-  'Available Python libraries: pandas as pd, numpy as np, matplotlib.pyplot as plt, seaborn as sns, plotly.express as px.',
-  'The runtime already provides these variables: dataframes, df, input_files, output_dir, save_current_matplotlib_chart(title, chart_type), save_plotly_chart(fig, title, chart_type).',
+  `Runtime mode: ${runtimeMode}.`,
+  runtimeManifest ? `Runtime manifest: ${runtimeManifest}` : '',
+  runtimeMode === 'table' ? 'Available libraries are intentionally lightweight: pandas as pd, numpy as np, and openpyxl. Do not import charting or ML libraries in this mode.' : '',
+  runtimeMode === 'chart' ? 'Available libraries: pandas as pd, numpy as np, matplotlib.pyplot as plt, seaborn as sns, plotly.express as px, and openpyxl. Do not import ML libraries unless you call install_package first.' : '',
+  runtimeMode === 'analysis' ? 'Available Python libraries include pandas as pd, numpy as np, matplotlib.pyplot as plt, seaborn as sns, plotly.express as px, sklearn, scipy, statsmodels, pyarrow, pillow, openpyxl, and xlsxwriter.' : '',
+  'The runtime already provides these variables when the selected mode supports them: dataframes, df, input_files, output_dir, save_excel_workbook(file_name, sheets), save_current_matplotlib_chart(title, chart_type), save_plotly_chart(fig, title, chart_type), install_package(package).',
   'For Excel, spreadsheet, workbook, or table requests, create a polished tabular workbook instead of a chart unless the user also asks for a chart.',
   'For spreadsheet requests, use save_excel_workbook(file_name, sheets) to save an .xlsx artifact. Use formulas in the workbook when totals, averages, rates, projections, or summary calculations are useful.',
-  'If a missing Python package is necessary, call install_package("package-name") before importing it. Prefer the available libraries first.',
+  'If a missing Python package is truly necessary, call install_package("package-name") before importing it. Prefer the available runtime packages and never install packages for simple pandas/openpyxl/chart work.',
   'Use current pandas offset aliases such as ME, QE, and YE instead of deprecated M, Q, or Y.',
   'Infer the user language from the latest request and use that language for chart titles, axis labels, legends, annotations, and printed summaries when possible.',
   'If attached files exist, use df or dataframes as the source data. If no files exist, create a compact DataFrame that directly models the user request and label assumptions in variables or output text, not in UI warnings.',
@@ -882,17 +941,62 @@ const getFinalAnalysisInstruction = (analysisContext: string) => [
   analysisContext
 ].join('\n');
 
+const getAnalysisFailureInstruction = (errorContext: string) => [
+  'The Code Execution tool failed after retrying. Continue the assistant response naturally in the user language.',
+  'Do not include traceback, file paths, stack traces, package logs, or raw technical errors.',
+  'Say clearly that the code execution tool could not be used for this request, so the chart, spreadsheet, or computed artifact was not generated.',
+  'Give a brief useful explanation or next-best answer from conversation context only.',
+  'Do not claim that a file, chart, workbook, preview, or download is available.',
+  'Do not mention View Analysis or internal tool names except the short phrase "Code execution error" if needed.',
+  '',
+  `Private error context for your awareness only:\n${errorContext.slice(0, 3000)}`
+].join('\n');
+
 const getAnalysisError = (data: CodeAnalysisResponse) => [
   data.error,
   data.execution?.stderr,
   data.execution?.stdout
 ].filter(Boolean).join('\n').trim();
 
+const readAnalysisResponse = async (response: Response): Promise<CodeAnalysisResponse> => {
+  try {
+    return await response.clone().json() as CodeAnalysisResponse;
+  } catch {
+    const text = await response.text().catch(() => '');
+    return {
+      success: false,
+      error: text || `Code Execution request failed with status ${response.status}`,
+      execution: {
+        stdout: '',
+        stderr: text || `HTTP ${response.status}`
+      }
+    };
+  }
+};
+
+const getSpreadsheetFinalText = (data: CodeAnalysisResponse) => {
+  const exportItem = Array.isArray(data.exports) && isRecord(data.exports[0]) ? data.exports[0] : null;
+  const fileName = isRecord(data.workbookPreview) ? getString(data.workbookPreview.fileName) : '';
+  const label = getString(exportItem?.label) || fileName || 'workbook Excel';
+  return [
+    `${label} sudah dibuat dan siap dipreview atau diunduh.`,
+    '',
+    '{{DEEPCHAT_ANALYSIS_CHART}}'
+  ].join('\n');
+};
+
 const runCodeAnalysisTool = async (task: ChatGenerationTask, latestUserMessage: ChatApiMessage, decision: ToolDecision) => {
   const files = normalizeAttachedDataFiles(latestUserMessage.attachedFiles);
   const requestedCharts = getRequestedChartTypes(latestUserMessage.content || '');
+  const wantsSpreadsheet = isSpreadsheetAnalysisRequest(latestUserMessage);
+  const runtimeMode = getAnalysisRuntimeMode(latestUserMessage, requestedCharts);
   const formattedMessages = formatMessages(task.apiMessages);
-  const prefaceResult = await streamAnalysisModel(task, formattedMessages, getAnalysisPrefaceInstruction(), decision.useSearch, { stripTokens: false });
+  let prefaceResult: { text: string; sources: SearchSource[] } = { text: '', sources: [] };
+  try {
+    prefaceResult = await streamAnalysisModel(task, formattedMessages, getAnalysisPrefaceInstruction(), decision.useSearch, { stripTokens: false, emit: true });
+  } catch {
+    prefaceResult = { text: '', sources: [] };
+  }
   const prefaceContent = normalizeAnalysisPreface(prefaceResult.text);
   task.searchSources = prefaceResult.sources.length ? prefaceResult.sources : task.searchSources;
   task.fullContent = prefaceContent;
@@ -901,14 +1005,15 @@ const runCodeAnalysisTool = async (task: ChatGenerationTask, latestUserMessage: 
     id: 'code-execution',
     name: 'Code Execution',
     status: 'running',
-    details: JSON.stringify({ code: '', stdout: 'Asking the model to write Python analysis code...', stderr: '' }, null, 2)
+    details: JSON.stringify({ code: '', stdout: wantsSpreadsheet ? 'Preparing the Excel workbook...' : 'Asking the model to write Python analysis code...', stderr: '' }, null, 2)
   }];
   emitSnapshot(task, true);
 
-  const maxAttempts = 4;
+  const maxAttempts = 3;
   let code = '';
   let data: CodeAnalysisResponse | null = null;
   let lastError = '';
+  const runtimeManifest = await getRuntimeManifestText(runtimeMode);
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     task.mcpUsage = [{
@@ -923,7 +1028,7 @@ const runCodeAnalysisTool = async (task: ChatGenerationTask, latestUserMessage: 
     }];
     emitSnapshot(task, true);
 
-    const codeResult = await callAnalysisModel(task, formattedMessages, getAnalysisCodeInstruction(files, requestedCharts, decision.useSearch, lastError, code), decision.useSearch);
+    const codeResult = await callAnalysisModel(task, formattedMessages, getAnalysisCodeInstruction(files, requestedCharts, decision.useSearch, runtimeMode, runtimeManifest, lastError, code), decision.useSearch);
     code = getPythonFromModelText(codeResult.text);
     task.searchSources = codeResult.sources.length ? codeResult.sources : task.searchSources;
     if (!isUsablePythonCode(code)) {
@@ -947,11 +1052,12 @@ const runCodeAnalysisTool = async (task: ChatGenerationTask, latestUserMessage: 
         displayCode: code,
         code,
         requestedCharts,
+        analysisMode: runtimeMode,
         files
       }),
       signal: task.controller.signal
     });
-    const nextData = await response.json() as CodeAnalysisResponse;
+    const nextData = await readAnalysisResponse(response);
     if (response.ok && nextData.success !== false) {
       data = nextData;
       break;
@@ -974,7 +1080,17 @@ const runCodeAnalysisTool = async (task: ChatGenerationTask, latestUserMessage: 
       }, null, 2)
     }];
     emitSnapshot(task, true);
-    throw new Error('Tool code execution error. I could not complete the Python analysis after retrying the runner.');
+    let fallbackText = '';
+    try {
+      const fallbackResult = await streamAnalysisModel(task, formattedMessages, getAnalysisFailureInstruction(lastError || getAnalysisError(data || {}) || 'Code Execution failed.'), decision.useSearch, { baseContent: prefaceContent });
+      task.searchSources = fallbackResult.sources.length ? fallbackResult.sources : task.searchSources;
+      fallbackText = fallbackResult.text;
+    } catch {
+      fallbackText = 'Code execution error. Tool analisis tidak bisa digunakan untuk permintaan ini, jadi file atau visualisasi belum berhasil dibuat.';
+    }
+    task.fullContent = [prefaceContent, fallbackText].filter(Boolean).join('\n\n');
+    await finishSuccessfulTask(task);
+    return;
   }
 
   task.mcpUsage = [{
@@ -989,9 +1105,15 @@ const runCodeAnalysisTool = async (task: ChatGenerationTask, latestUserMessage: 
   }];
   emitSnapshot(task, true);
 
-  const finalResult = await streamAnalysisModel(task, formattedMessages, getFinalAnalysisInstruction(compactAnalysisContext(data)), decision.useSearch, { baseContent: prefaceContent });
-  task.searchSources = finalResult.sources.length ? finalResult.sources : task.searchSources;
-  task.fullContent = [prefaceContent, formatAnalysisMarkdown(finalResult.text || 'Here is the analysis.', data)].filter(Boolean).join('\n\n');
+  let finalText = '';
+  try {
+    const finalResult = await streamAnalysisModel(task, formattedMessages, getFinalAnalysisInstruction(compactAnalysisContext(data)), decision.useSearch, { baseContent: prefaceContent });
+    task.searchSources = finalResult.sources.length ? finalResult.sources : task.searchSources;
+    finalText = finalResult.text;
+  } catch {
+    finalText = wantsSpreadsheet ? getSpreadsheetFinalText(data) : 'Hasil analisis sudah siap. {{DEEPCHAT_ANALYSIS_CHART}}';
+  }
+  task.fullContent = [prefaceContent, formatAnalysisMarkdown(finalText || 'Here is the analysis.', data)].filter(Boolean).join('\n\n');
   await finishSuccessfulTask(task);
 };
 
@@ -1010,7 +1132,12 @@ const finishSuccessfulTask = async (task: ChatGenerationTask) => {
   }
 
   task.status = 'completed';
-  const finalMessage = await saveFinalMessage(task);
+  let finalMessage: StoredChatMessage | null = null;
+  try {
+    finalMessage = await saveFinalMessage(task);
+  } catch {
+    finalMessage = null;
+  }
   emitSnapshot(task, true);
 
   if (finalMessage) {
@@ -1057,7 +1184,7 @@ const finishErroredTask = async (task: ChatGenerationTask, error: unknown) => {
   task.status = 'error';
   const errorMessage = getErrorMessage(error);
   const message = errorMessage.startsWith('Tool code execution error')
-    ? errorMessage
+    ? 'Code execution error.'
     : errorMessage
       ? `I encountered an error while processing your request.`
       : 'I encountered an error while processing your request.';

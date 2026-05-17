@@ -1,12 +1,13 @@
 import { createReadStream } from 'fs';
 import { stat } from 'fs/promises';
+import { tmpdir } from 'os';
 import { basename, extname, join, normalize, sep } from 'path';
 import { NextRequest } from 'next/server';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-const ANALYSIS_ROOT = join(process.cwd(), 'data', 'analysis');
+const ANALYSIS_ROOT = join(tmpdir(), 'deepchat', 'analysis');
 
 const MIME_TYPES: Record<string, string> = {
   '.png': 'image/png',

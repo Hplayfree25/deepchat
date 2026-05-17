@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import ReactMarkdown from 'react-markdown';
+import Image from 'next/image';
 import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
@@ -200,7 +201,7 @@ function CitationLink({ source }: { source: SearchSource }) {
       >
         <span className="flex items-center gap-2 border-b border-slate-100 px-3 py-2 dark:border-slate-800">
           <span className="flex h-6 w-6 shrink-0 items-center justify-center overflow-hidden rounded-full bg-slate-50 ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-700">
-            <img src={getFaviconUrl(source)} alt="" className="h-4 w-4 rounded-sm" loading="lazy" />
+            <Image src={getFaviconUrl(source)} alt="" width={16} height={16} unoptimized className="h-4 w-4 rounded-sm" />
           </span>
           <span className="block min-w-0 truncate text-xs font-semibold text-slate-600 dark:text-slate-300">{source.displayUrl || getSourceHost(source.url)}</span>
         </span>

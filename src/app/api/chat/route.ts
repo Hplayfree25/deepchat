@@ -641,6 +641,15 @@ const withSystemInstruction = (messages: ChatMessage[], instruction: string): Ch
   return [{ role: 'system', content: instruction }, ...nextMessages];
 };
 
+const buildPlatformCapabilityPrompt = () => [
+  'DeepChat platform capabilities:',
+  '- Search can gather fresh web facts and source-aware context when enabled by the router or user.',
+  '- Code Execution can run isolated Python for data analysis, calculations, forecasts, charts, downloadable Excel workbooks, spreadsheet previews, and generated artifacts.',
+  '- If runtime context or tool orchestration is active, do not say the platform cannot create downloadable Excel files, charts, or artifacts.',
+  '- Do not ask the user which internal tool to use. Continue naturally and let DeepChat route tools.',
+  '- If a task needs an artifact and the relevant runtime tool is active, speak as if the platform will produce it, not as if the user must manually build it.'
+].join('\n');
+
 const pipeSseResponse = async (controller: ReadableStreamDefaultController<Uint8Array>, response: Response) => {
   const encoder = new TextEncoder();
   if (!response.ok || !response.body) {
@@ -662,6 +671,7 @@ const createAgenticMCPResponse = (requestUrl: string, provider: string, payload:
     'Before using any MCP context, give a short natural first response to the user.',
     'State your initial approach or what you are about to verify.',
     'Keep it concise and do not provide the full final answer yet.',
+    'Do not ask what tool to use, do not ask for confirmation, and do not say the platform cannot perform a runtime action when tools are available.',
     buildClarificationInstruction()
   ].join('\n'));
   const callDirect = (phaseMessages: ChatMessage[]) => fetch(requestUrl, {
@@ -809,7 +819,7 @@ export async function POST(req: Request) {
     const usedMCPIds = new Set(mcpRuntimeResult.usage.map(item => item.id));
     const promptMCPServers = runtimeMCPServers.filter(server => usedMCPIds.has(server.serverId));
 
-    const integrationPrompt = buildIntegrationSystemPrompt(promptMCPServers, runtimeTools, runtimeContext);
+    const integrationPrompt = [buildPlatformCapabilityPrompt(), buildIntegrationSystemPrompt(promptMCPServers, runtimeTools, runtimeContext)].filter(Boolean).join('\n\n');
     const systemIndex = messages.findIndex((m: unknown) => isChatMessageLike(m) && m.role === 'system');
     if (systemIndex !== -1) {
       const baseSystemPrompt = [persona.memoryReferenceHistory === false ? '' : messages[systemIndex].content, integrationPrompt].filter(Boolean).join('\n\n');

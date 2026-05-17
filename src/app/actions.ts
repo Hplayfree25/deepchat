@@ -3,6 +3,7 @@
 import fs from 'fs/promises';
 import path from 'path';
 import crypto from 'crypto';
+import { tmpdir } from 'os';
 import { revalidatePath } from 'next/cache';
 import { clearChatHistory, deleteChatReferences } from './memory';
 import { readLLMSettings, writeLLMSettings, type LLMSettings } from '@/lib/llm-settings';
@@ -30,7 +31,8 @@ import {
 export type { LLMSettings } from '@/lib/llm-settings';
 
 const TEMP_FILE_ROOT = TEMP_FILE_DIR;
-const ANALYSIS_ROOT = path.join(process.cwd(), 'data', 'analysis');
+const ANALYSIS_ROOT = path.join(tmpdir(), 'deepchat', 'analysis');
+const LEGACY_ANALYSIS_ROOT = path.join(process.cwd(), 'data', 'analysis');
 
 type ConnectionData = {
   id?: string;
@@ -107,25 +109,25 @@ const collectAnalysisRunIdsFromValue = (value: unknown, runIds: Set<string>) => 
   }
 };
 
-const deleteChatAnalysisArtifacts = async (chat: StoredChat | null | undefined) => {
+const deleteChatAnalysisArtifactsInRoot = async (chat: StoredChat | null | undefined, analysisRoot: string) => {
   const runIds = new Set<string>();
   collectAnalysisRunIdsFromValue(chat, runIds);
-  const root = path.normalize(ANALYSIS_ROOT + path.sep);
+  const root = path.normalize(analysisRoot + path.sep);
 
   for (const runId of runIds) {
-    const runPath = path.normalize(path.join(ANALYSIS_ROOT, runId));
+    const runPath = path.normalize(path.join(analysisRoot, runId));
     if (!runPath.toLowerCase().startsWith(root.toLowerCase())) continue;
     await rmDirIfExists(runPath);
   }
 
   let entries: string[] = [];
   try {
-    entries = await fs.readdir(ANALYSIS_ROOT);
+    entries = await fs.readdir(analysisRoot);
   } catch {
     return;
   }
   for (const entry of entries) {
-    const runPath = path.normalize(path.join(ANALYSIS_ROOT, entry));
+    const runPath = path.normalize(path.join(analysisRoot, entry));
     if (!runPath.toLowerCase().startsWith(root.toLowerCase())) continue;
     try {
       const meta = JSON.parse(await fs.readFile(path.join(runPath, 'meta.json'), 'utf-8'));
@@ -133,6 +135,11 @@ const deleteChatAnalysisArtifacts = async (chat: StoredChat | null | undefined) 
     } catch {
     }
   }
+};
+
+const deleteChatAnalysisArtifacts = async (chat: StoredChat | null | undefined) => {
+  await deleteChatAnalysisArtifactsInRoot(chat, ANALYSIS_ROOT);
+  await deleteChatAnalysisArtifactsInRoot(chat, LEGACY_ANALYSIS_ROOT);
 };
 
 const normalizeMessageVersions = (message: StoredMessage) => {
@@ -399,6 +406,7 @@ export async function deleteAllChats() {
       await deleteSharedChatCopy(chat);
     }
     await rmDirIfExists(ANALYSIS_ROOT);
+    await rmDirIfExists(LEGACY_ANALYSIS_ROOT);
     deleteAllChatRecords();
     await clearChatHistory();
     revalidatePath('/');
