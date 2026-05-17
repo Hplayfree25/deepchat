@@ -733,6 +733,100 @@ const callAnalysisModel = async (task: ChatGenerationTask, messages: ChatApiMess
   return readChatResponseText(res);
 };
 
+const stripAnalysisStreamingTokens = (text: string) => {
+  const chartToken = '{{DEEPCHAT_ANALYSIS_CHART}}';
+  const actionsToken = '{{DEEPCHAT_ANALYSIS_ACTIONS}}';
+  let clean = text.replaceAll(chartToken, '').replaceAll(actionsToken, '');
+  [chartToken, actionsToken].forEach(token => {
+    for (let index = 1; index < token.length; index++) {
+      const partial = token.slice(0, index);
+      if (clean.endsWith(partial)) {
+        clean = clean.slice(0, -partial.length);
+        break;
+      }
+    }
+  });
+  return clean;
+};
+
+const streamAnalysisModel = async (task: ChatGenerationTask, messages: ChatApiMessage[], instruction: string, useSearch: boolean) => {
+  const res = await fetch('/api/chat', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      messages: [{ role: 'system', content: instruction }, ...messages],
+      connectionId: task.connection?.connectionId,
+      modelId: task.connection?.id,
+      mcpServers: getEnabledMCPRuntimeServers(),
+      tools: getEnabledToolRuntimeItems(useSearch),
+      skipAgentLoop: true
+    }),
+    signal: task.controller.signal
+  });
+  if (!res.ok) throw new Error(await getResponseError(res));
+
+  const reader = res.body?.getReader();
+  const decoder = new TextDecoder();
+  const provider = res.headers.get('x-provider') || '';
+  const sources: SearchSource[] = [];
+  let text = '';
+  let buffer = '';
+
+  if (!reader) return { text, sources };
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split('\n');
+    buffer = lines.pop() || '';
+
+    for (const line of lines) {
+      if (!line.trim() || line.startsWith(':')) continue;
+      const data = line.replace(/^data:\s*/, '').trim();
+      if (data === '[DONE]') continue;
+
+      let json: Record<string, unknown>;
+      try {
+        const parsed = JSON.parse(data) as unknown;
+        if (!isRecord(parsed)) continue;
+        json = parsed;
+      } catch {
+        continue;
+      }
+
+      if (json.error) throw new Error(getString(json.error) || 'Provider returned an error.');
+      if (json.type === 'deepchat_sources') {
+        sources.splice(0, sources.length, ...normalizeSearchSources(json.sources));
+        task.searchSources = sources;
+        emitSnapshot(task, true);
+        continue;
+      }
+
+      let chunk = '';
+      if (json.type === 'deepchat_content') {
+        chunk = getString(json.text);
+      } else if (provider === 'anthropic') {
+        const delta = isRecord(json.delta) ? json.delta : null;
+        if (json.type === 'content_block_delta') chunk = getString(delta?.text);
+      } else if (provider === 'gemini' || provider === 'vertexai') {
+        chunk = getGeminiText(json);
+      } else {
+        chunk = getOpenAiDelta(json).content;
+      }
+
+      if (chunk) {
+        text += chunk;
+        task.fullContent = stripAnalysisStreamingTokens(text);
+        emitSnapshot(task, true);
+      }
+    }
+  }
+
+  return { text: text.trim(), sources };
+};
+
 const getAnalysisCodeInstruction = (files: AttachedDataFile[], requestedCharts: string[], useSearch: boolean, previousError = '') => [
   'You are DeepChat Code Execution. Generate Python code for a data analysis task.',
   'Return only valid JSON with this exact shape: {"code":"..."}',
@@ -873,7 +967,7 @@ const runCodeAnalysisTool = async (task: ChatGenerationTask, latestUserMessage: 
   }];
   emitSnapshot(task, true);
 
-  const finalResult = await callAnalysisModel(task, formattedMessages, getFinalAnalysisInstruction(compactAnalysisContext(data)), decision.useSearch);
+  const finalResult = await streamAnalysisModel(task, formattedMessages, getFinalAnalysisInstruction(compactAnalysisContext(data)), decision.useSearch);
   task.searchSources = finalResult.sources.length ? finalResult.sources : task.searchSources;
   task.fullContent = formatAnalysisMarkdown(finalResult.text || 'Here is the analysis.', data);
   await finishSuccessfulTask(task);

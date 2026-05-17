@@ -42,11 +42,13 @@ type AnalysisArtifact = {
   };
 };
 
-const filters = [
-  { id: 'default', label: 'Default', className: '' },
-  { id: 'cool', label: 'Cool', className: 'saturate-[1.08] hue-rotate-[8deg]' },
-  { id: 'warm', label: 'Warm', className: 'saturate-[1.1] sepia-[0.08]' },
-  { id: 'contrast', label: 'Contrast', className: 'contrast-[1.08] saturate-[1.08]' }
+const chartColors = [
+  { id: 'blue', label: 'Blue', swatch: 'bg-blue-500', className: '' },
+  { id: 'violet', label: 'Violet', swatch: 'bg-violet-500', className: 'hue-rotate-[34deg] saturate-[1.08]' },
+  { id: 'green', label: 'Green', swatch: 'bg-emerald-500', className: 'hue-rotate-[116deg] saturate-[1.12]' },
+  { id: 'amber', label: 'Amber', swatch: 'bg-amber-500', className: 'hue-rotate-[176deg] saturate-[1.15]' },
+  { id: 'rose', label: 'Rose', swatch: 'bg-rose-500', className: 'hue-rotate-[246deg] saturate-[1.1]' },
+  { id: 'contrast', label: 'Contrast', swatch: 'bg-slate-800', className: 'contrast-[1.12] saturate-[1.05]' }
 ];
 
 function IconButton({ title, active = false, onClick, children }: { title: string; active?: boolean; onClick: () => void; children: React.ReactNode }) {
@@ -87,6 +89,30 @@ function getPrimaryDataset(data: AnalysisArtifact | null) {
 
 function getCharts(data: AnalysisArtifact | null) {
   return data?.datasets?.flatMap(dataset => dataset.charts || []) || [];
+}
+
+function normalizeChartKey(chart: AnalysisChart) {
+  return [
+    chart.type || 'chart',
+    (chart.title || '').toLowerCase().replace(/interactive|interaktif|static|statis/g, '').replace(/[^a-z0-9]+/g, '')
+  ].join(':');
+}
+
+function mergeCharts(charts: AnalysisChart[]) {
+  const merged: AnalysisChart[] = [];
+  charts.forEach(chart => {
+    const key = normalizeChartKey(chart);
+    const match = merged.find(item => normalizeChartKey(item) === key || ((item.type || 'chart') === (chart.type || 'chart') && Boolean(item.staticUrl) !== Boolean(chart.staticUrl) && Boolean(item.interactiveUrl) !== Boolean(chart.interactiveUrl)));
+    if (match) {
+      match.staticUrl = match.staticUrl || chart.staticUrl;
+      match.interactiveUrl = match.interactiveUrl || chart.interactiveUrl;
+      match.title = (match.title || '').toLowerCase().includes('interactive') || (match.title || '').toLowerCase().includes('interaktif') ? chart.title || match.title : match.title || chart.title;
+      match.type = match.type || chart.type;
+      return;
+    }
+    merged.push({ ...chart });
+  });
+  return merged;
 }
 
 function getExportTitle(item: AnalysisExport, index: number) {
@@ -155,12 +181,12 @@ function ChartCanvas({ chart, interactive, filterClass, expanded = false }: { ch
       </div>
     );
   }
-  if ((interactive || !chart.staticUrl) && chart.interactiveUrl) {
+  if (interactive && chart.interactiveUrl) {
     return (
       <iframe
         title={chart.title || 'Interactive chart'}
         src={chart.interactiveUrl}
-        className={`h-full min-h-[360px] w-full border-0 bg-white ${expanded ? 'min-h-[calc(100vh-72px)]' : ''}`}
+        className={`h-full min-h-[360px] w-full border-0 bg-white transition ${filterClass} ${expanded ? 'min-h-[calc(100vh-72px)]' : ''}`}
       />
     );
   }
@@ -172,8 +198,8 @@ function ChartCanvas({ chart, interactive, filterClass, expanded = false }: { ch
     );
   }
   return (
-    <div className="flex h-80 items-center justify-center text-sm font-bold text-slate-400">
-      Chart file unavailable
+    <div className="flex h-80 items-center justify-center px-6 text-center text-sm font-bold text-slate-400">
+      {chart.interactiveUrl ? 'Press the interactive chart button to view this chart.' : 'Chart file unavailable'}
     </div>
   );
 }
@@ -198,16 +224,16 @@ export function DataAnalysisActions({ value }: { value: string }) {
 
 export default function DataAnalysisResult({ value }: { value: string }) {
   const data = useMemo(() => parseArtifact(value), [value]);
-  const charts = useMemo(() => getCharts(data), [data]);
+  const charts = useMemo(() => mergeCharts(getCharts(data)), [data]);
   const dataset = getPrimaryDataset(data);
   const [activeChart, setActiveChart] = useState(0);
   const [interactive, setInteractive] = useState(false);
-  const [filter, setFilter] = useState(filters[0].id);
+  const [filter, setFilter] = useState(chartColors[0].id);
   const [colorOpen, setColorOpen] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const colorRef = useRef<HTMLDivElement | null>(null);
   const chart = charts[activeChart] || charts[0];
-  const filterClass = filters.find(item => item.id === filter)?.className || '';
+  const filterClass = chartColors.find(item => item.id === filter)?.className || '';
   const exports = data?.exports?.filter(item => item.url) || [];
   const warnings = [...(data?.warnings || []), ...(dataset?.warnings || [])].filter(Boolean);
 
@@ -228,6 +254,10 @@ export default function DataAnalysisResult({ value }: { value: string }) {
       document.body.style.overflow = previousOverflow;
     };
   }, [expanded]);
+
+  useEffect(() => {
+    setInteractive(false);
+  }, [activeChart]);
 
   if (!data) {
     return (
@@ -308,16 +338,17 @@ export default function DataAnalysisResult({ value }: { value: string }) {
             <div className="absolute right-9 top-10 z-20 w-56 rounded-lg border border-slate-200 bg-white p-3 shadow-xl">
               <p className="mb-2 flex items-center gap-2 text-xs font-extrabold uppercase text-slate-400">
                 <Palette className="h-3.5 w-3.5" />
-                Chart Style
+                Line Color
               </p>
               <div className="grid grid-cols-2 gap-2">
-                {filters.map(item => (
+                {chartColors.map(item => (
                   <button
                     key={item.id}
                     type="button"
                     onClick={() => setFilter(item.id)}
-                    className={`rounded-lg border px-3 py-2 text-left text-xs font-extrabold transition ${filter === item.id ? 'border-indigo-200 bg-indigo-50 text-indigo-600' : 'border-slate-200 text-slate-500 hover:bg-slate-50'}`}
+                    className={`inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-left text-xs font-extrabold transition ${filter === item.id ? 'border-slate-300 bg-slate-100 text-slate-900' : 'border-slate-200 text-slate-500 hover:bg-slate-50'}`}
                   >
+                    <span className={`h-2.5 w-2.5 rounded-full ${item.swatch}`} />
                     {item.label}
                   </button>
                 ))}
