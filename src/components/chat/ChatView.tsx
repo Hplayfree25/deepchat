@@ -709,7 +709,7 @@ export default function ChatView({ chatId }: { chatId: string }) {
       )}
 
       <div className="deepchat-composer-dock pointer-events-none absolute bottom-0 left-0 z-20 flex w-full flex-col items-center px-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] pt-12 sm:p-6">
-        <div className="pointer-events-auto w-full max-w-4xl flex flex-col gap-2">
+        <div className="pointer-events-auto w-full max-w-3xl flex flex-col gap-2">
           {activeClarificationMessage?.clarification ? (
             <ClarificationDock
               clarification={activeClarificationMessage.clarification}
@@ -1033,13 +1033,8 @@ function MemorySavedBadgeContent() {
 
 function ImageGenerationLoader() {
   const [textIndex, setTextIndex] = useState(0);
-  const waveDots = [
-    [72, 20], [78, 24], [84, 28],
-    [64, 28], [70, 32], [76, 36], [82, 40],
-    [56, 36], [62, 40], [68, 44], [74, 48],
-    [48, 44], [54, 48], [60, 52],
-    [40, 52], [46, 56]
-  ];
+  const dotRows = 13;
+  const dotCols = 13;
 
   useEffect(() => {
     const timer = window.setInterval(() => {
@@ -1051,35 +1046,37 @@ function ImageGenerationLoader() {
   return (
     <div className="deepchat-image-loader relative aspect-square w-[min(74vw,320px)] overflow-hidden rounded-[2rem] border border-slate-200 bg-white p-5 shadow-lg shadow-slate-200/55">
       <svg className="pointer-events-none absolute inset-0 h-full w-full" viewBox="0 0 100 100" aria-hidden="true">
-        {waveDots.map(([cx, cy], index) => {
-          const diagonalDelay = index * 0.11;
+        {Array.from({ length: dotRows * dotCols }).map((_, index) => {
+          const row = Math.floor(index / dotCols);
+          const col = index % dotCols;
+          const diagonalDelay = ((dotRows - 1 - row) + (dotCols - 1 - col)) * 0.075;
+          const cx = 8 + col * 7;
+          const cy = 8 + row * 7;
           return (
-            <g key={index}>
-              <motion.circle
-                cx={cx}
-                cy={cy}
-                fill="rgb(99 102 241)"
-                animate={{
-                  cx: [cx + 12, cx, cx - 18],
-                  cy: [cy + 12, cy, cy - 18],
-                  r: [0.9, 2.25, 0.8],
-                  opacity: [0, 0.16, 0]
-                }}
-                transition={{ duration: 5.6, ease: 'easeInOut', repeat: Infinity, delay: diagonalDelay }}
-              />
-              <motion.circle
-                cx={cx}
-                cy={cy}
-                fill="rgb(99 102 241)"
-                animate={{
-                  cx: [cx + 12, cx, cx - 18],
-                  cy: [cy + 12, cy, cy - 18],
-                  r: [0.35, 0.82, 0.32],
-                  opacity: [0.12, 0.62, 0.1]
-                }}
-                transition={{ duration: 5.6, ease: 'easeInOut', repeat: Infinity, delay: diagonalDelay }}
-              />
-            </g>
+            <motion.circle
+              key={index}
+              cx={cx}
+              cy={cy}
+              fill="rgb(148 163 184)"
+              animate={{
+                r: [0.42, 0.42, 0.98, 0.42, 0.42],
+                opacity: [0.22, 0.22, 0.68, 0.22, 0.22],
+                filter: [
+                  'drop-shadow(0 0 0 rgba(148, 163, 184, 0))',
+                  'drop-shadow(0 0 0 rgba(148, 163, 184, 0))',
+                  'drop-shadow(0 0 7px rgba(148, 163, 184, 0.42))',
+                  'drop-shadow(0 0 0 rgba(148, 163, 184, 0))',
+                  'drop-shadow(0 0 0 rgba(148, 163, 184, 0))'
+                ]
+              }}
+              transition={{
+                duration: 5.8,
+                ease: 'easeInOut',
+                repeat: Infinity,
+                delay: diagonalDelay,
+                times: [0, 0.42, 0.5, 0.58, 1]
+              }}
+            />
           );
         })}
       </svg>

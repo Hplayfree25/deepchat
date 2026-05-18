@@ -28,6 +28,28 @@ interface SearchSource {
   displayUrl?: string;
 }
 
+type MarkdownCodeProps = React.ComponentProps<'code'> & {
+  node?: {
+    position?: {
+      start?: {
+        offset?: number;
+      };
+      end?: {
+        offset?: number;
+      };
+    };
+  };
+};
+
+type StreamingCodeFence = {
+  startOffset: number;
+  contentStartOffset: number;
+  endOffset: number;
+  language: string;
+  value: string;
+  canMatchByValue: boolean;
+};
+
 const MarkdownRenderer = React.memo(function MarkdownRenderer({ content, isStreaming = false, searchSources = [] }: MarkdownRendererProps) {
   const [highlighter, setHighlighter] = useState<Highlighter | null>(null);
 
@@ -49,6 +71,7 @@ const MarkdownRenderer = React.memo(function MarkdownRenderer({ content, isStrea
       if (references.length === 0) return match;
       return references.map(reference => `[${reference.label}](${formatMarkdownHref(searchSources[reference.index].url)})`).join(' ');
     });
+  const streamingCodeFence = isStreaming ? getStreamingCodeFence(processedContent) : null;
 
   return (
     <ClientOnly>
@@ -58,13 +81,14 @@ const MarkdownRenderer = React.memo(function MarkdownRenderer({ content, isStrea
           rehypePlugins={[rehypeKatex]}
           urlTransform={transformMarkdownUrl}
           components={{
-            code({ className, children, ...props }: React.ComponentProps<'code'>) {
+            code({ className, children, node, ...props }: MarkdownCodeProps) {
               const match = /language-([\w-]+)/.exec(className || '');
               const language = match ? match[1] : '';
               const isInline = !match;
 
               if (!isInline) {
-                return <CodeBlock language={language} value={String(children).replace(/\n$/, '')} highlighter={highlighter} isStreaming={isStreaming} />;
+                const value = String(children).replace(/\n$/, '');
+                return <CodeBlock language={language} value={value} highlighter={highlighter} isStreaming={isCodeBlockStreaming(streamingCodeFence, node, language, value)} />;
               }
 
               const inlineValue = getChildrenText(children);
@@ -136,6 +160,70 @@ const MarkdownRenderer = React.memo(function MarkdownRenderer({ content, isStrea
     </ClientOnly>
   );
 });
+
+function getStreamingCodeFence(markdown: string): StreamingCodeFence | null {
+  let openFence: {
+    char: string;
+    length: number;
+    startOffset: number;
+    contentStartOffset: number;
+    language: string;
+  } | null = null;
+  let lineStart = 0;
+  let fencedCodeBlockCount = 0;
+
+  while (lineStart <= markdown.length) {
+    const lineEnd = markdown.indexOf('\n', lineStart);
+    const currentLineEnd = lineEnd === -1 ? markdown.length : lineEnd;
+    const line = markdown.slice(lineStart, currentLineEnd);
+
+    if (openFence) {
+      const closingMatch = line.match(/^ {0,3}(`{3,}|~{3,})[ \t]*$/);
+      if (closingMatch && closingMatch[1][0] === openFence.char && closingMatch[1].length >= openFence.length) {
+        openFence = null;
+      }
+    } else {
+      const openingMatch = line.match(/^ {0,3}(`{3,}|~{3,})(.*)$/);
+      if (openingMatch) {
+        fencedCodeBlockCount += 1;
+        openFence = {
+          char: openingMatch[1][0],
+          length: openingMatch[1].length,
+          startOffset: lineStart,
+          contentStartOffset: lineEnd === -1 ? markdown.length : lineEnd + 1,
+          language: normalizeFenceLanguage(openingMatch[2])
+        };
+      }
+    }
+
+    if (lineEnd === -1) break;
+    lineStart = lineEnd + 1;
+  }
+
+  if (!openFence) return null;
+
+  return {
+    startOffset: openFence.startOffset,
+    contentStartOffset: openFence.contentStartOffset,
+    endOffset: markdown.length,
+    language: openFence.language,
+    value: markdown.slice(openFence.contentStartOffset).replace(/\n$/, ''),
+    canMatchByValue: fencedCodeBlockCount === 1
+  };
+}
+
+function normalizeFenceLanguage(info: string) {
+  return info.trim().split(/\s+/)[0]?.replace(/^language-/, '') || '';
+}
+
+function isCodeBlockStreaming(streamingCodeFence: StreamingCodeFence | null, node: MarkdownCodeProps['node'], language: string, value: string) {
+  if (!streamingCodeFence) return false;
+  const startOffset = node?.position?.start?.offset;
+  const endOffset = node?.position?.end?.offset;
+  if (typeof startOffset === 'number' && startOffset >= streamingCodeFence.startOffset && startOffset <= streamingCodeFence.contentStartOffset) return true;
+  if (typeof endOffset === 'number' && endOffset === streamingCodeFence.endOffset) return true;
+  return streamingCodeFence.canMatchByValue && normalizeFenceLanguage(language) === streamingCodeFence.language && value === streamingCodeFence.value;
+}
 
 function GeneratedMarkdownImage({ src, alt }: { src: string; alt: string }) {
   const [imageSize, setImageSize] = useState({ width: 1024, height: 1024 });

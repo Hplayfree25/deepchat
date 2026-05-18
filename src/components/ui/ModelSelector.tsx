@@ -78,15 +78,15 @@ export default function ModelSelector() {
   }, []);
 
   return (
-    <div className="relative">
+    <div className="relative min-w-0">
       <button
         type="button"
         onClick={() => setIsOpen(open => !open)}
-        className="flex max-w-[190px] items-center gap-1.5 rounded-full px-1.5 py-2 text-slate-400 transition-colors hover:text-indigo-600 sm:max-w-[260px]"
+        className="flex h-10 max-w-full items-center gap-1.5 rounded-full px-2 text-slate-400 transition-colors hover:bg-slate-100 hover:text-indigo-600 dark:hover:bg-slate-800 sm:max-w-[9rem] lg:max-w-[13rem]"
         aria-label="Select model"
       >
         <Sparkles className="h-5 w-5 shrink-0" />
-        <span className="hidden max-w-[190px] truncate text-xs font-bold sm:block">{selectedModel.name || selectedModel.id}</span>
+        <span className="hidden min-w-0 truncate text-xs font-bold sm:block">{selectedModel.name || selectedModel.id}</span>
         <ChevronDown className={`h-3.5 w-3.5 shrink-0 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
       </button>
       {isOpen && (
@@ -184,7 +184,7 @@ function ModelMenu({ currentModel, onClose, onSelect, onOpenSettings }: {
   return (
     <>
       <div className="fixed inset-0 z-40" />
-      <div ref={panelRef} className="fixed bottom-[calc(6.5rem+env(safe-area-inset-bottom))] left-3 right-3 z-50 overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-2xl shadow-slate-300/40 sm:absolute sm:bottom-full sm:left-0 sm:right-auto sm:mb-3 sm:w-[760px] sm:max-w-[920px] md:w-[860px]">
+      <div ref={panelRef} className="fixed bottom-[calc(9.25rem+env(safe-area-inset-bottom))] left-1/2 z-50 max-h-[min(64vh,32rem)] w-[min(38rem,calc(100vw-1.5rem))] -translate-x-1/2 overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-2xl shadow-slate-300/40 sm:bottom-[calc(10rem+env(safe-area-inset-bottom))] sm:w-[min(40rem,calc(100vw-3rem))]">
         <div className="flex items-center justify-between gap-3 border-b border-slate-100 px-4 py-3 sm:px-5">
           <div className="min-w-0">
             <p className="text-sm font-extrabold text-slate-800">Select model</p>

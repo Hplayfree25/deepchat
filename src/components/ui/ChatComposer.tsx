@@ -3,20 +3,22 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
   BookOpen,
+  ChevronRight,
   Code2,
   File as FileIcon,
   FileText,
   Globe,
-  Hash,
   Image as ImageIcon,
-  Lightbulb,
   Mic,
+  MoreHorizontal,
   Paperclip,
+  Plus,
   Send,
   Square,
   Video,
   X
 } from 'lucide-react';
+import { AnimatePresence, motion } from 'framer-motion';
 import ModelSelector from './ModelSelector';
 import { getDictationLanguage, loadGeneralSettings, subscribeGeneralSettings } from '@/lib/general-settings';
 
@@ -94,11 +96,13 @@ export default function ChatComposer({
 }: ChatComposerProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const composerRef = useRef<HTMLFormElement>(null);
   const dragDepthRef = useRef(0);
   const recognitionRef = useRef<SpeechRecognitionInstance | null>(null);
   const dictationBaseRef = useRef('');
   const [isDraggingFile, setIsDraggingFile] = useState(false);
   const [isDictating, setIsDictating] = useState(false);
+  const [isAttachMenuOpen, setIsAttachMenuOpen] = useState(false);
   const [isDictationEnabled, setIsDictationEnabled] = useState(() => loadGeneralSettings().dictationEnabled);
   const canSubmit = value.trim().length > 0 || attachedFiles.length > 0;
 
@@ -123,6 +127,22 @@ export default function ChatComposer({
     };
   }, []);
 
+  useEffect(() => {
+    if (!isAttachMenuOpen) return;
+    const handlePointerDown = (event: PointerEvent) => {
+      if (composerRef.current && !composerRef.current.contains(event.target as Node)) setIsAttachMenuOpen(false);
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setIsAttachMenuOpen(false);
+    };
+    document.addEventListener('pointerdown', handlePointerDown);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isAttachMenuOpen]);
+
   const submit = () => {
     if (!canSubmit || isBusy || isUploading) return;
     onSubmit(value);
@@ -131,6 +151,12 @@ export default function ChatComposer({
   const uploadFiles = (files: File[]) => {
     const validFiles = files.filter(file => file.size > 0);
     if (validFiles.length > 0) onFilesUpload(validFiles);
+  };
+
+  const openFilePicker = () => {
+    if (isUploading) return;
+    fileInputRef.current?.click();
+    setIsAttachMenuOpen(false);
   };
 
   const toggleDictation = () => {
@@ -224,6 +250,7 @@ export default function ChatComposer({
       )}
 
       <form
+        ref={composerRef}
         onSubmit={(event) => {
           event.preventDefault();
           submit();
@@ -254,26 +281,10 @@ export default function ChatComposer({
           event.preventDefault();
           uploadFiles(files);
         }}
-        className={`rounded-[1.5rem] border bg-white p-2 shadow-sm transition-all focus-within:border-slate-300 focus-within:shadow-md sm:rounded-[2rem] dark:bg-slate-950/95 dark:shadow-2xl dark:shadow-black/25 dark:focus-within:border-indigo-400/60 ${isDraggingFile ? 'border-indigo-400 ring-4 ring-indigo-100 dark:ring-indigo-500/15' : 'border-slate-200 dark:border-slate-700'}`}
+        className={`relative rounded-[1.75rem] border bg-white px-2 py-1.5 shadow-[0_1px_2px_rgb(15_23_42/0.05),0_12px_34px_rgb(15_23_42/0.08)] transition-all focus-within:border-slate-300 focus-within:shadow-[0_2px_6px_rgb(15_23_42/0.06),0_18px_42px_rgb(15_23_42/0.11)] sm:rounded-[2rem] dark:bg-slate-950/95 dark:shadow-2xl dark:shadow-black/25 dark:focus-within:border-indigo-400/60 ${isDraggingFile ? 'border-indigo-400 ring-4 ring-indigo-100 dark:ring-indigo-500/15' : 'border-slate-200 dark:border-slate-700'}`}
       >
-        <textarea
-          ref={textareaRef}
-          placeholder={placeholder}
-          className="min-h-12 w-full resize-none bg-transparent px-3 py-3 text-[15px] font-medium text-slate-800 outline-none placeholder:text-slate-400 custom-scrollbar sm:px-4 dark:text-slate-100 dark:placeholder:text-slate-500"
-          style={{ maxHeight: maxTextareaHeight }}
-          rows={1}
-          value={value}
-          onChange={(event) => onChange(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter' && !event.shiftKey) {
-              event.preventDefault();
-              submit();
-            }
-          }}
-        />
-
-        <div className="flex items-center justify-between gap-1 px-1 pt-1 sm:gap-2">
-          <div className="flex min-w-0 flex-1 items-center gap-0.5 sm:gap-1">
+        <div className="flex min-h-12 items-center gap-1 sm:min-h-14 sm:gap-2">
+          <div className="relative flex h-10 shrink-0 items-center justify-center sm:h-11">
             <input
               type="file"
               multiple
@@ -284,31 +295,58 @@ export default function ChatComposer({
                 event.target.value = '';
               }}
             />
-            <IconButton label="Attach files" disabled={isUploading} onClick={() => fileInputRef.current?.click()}>
-              <Paperclip className="h-5 w-5" />
-            </IconButton>
-            <IconButton label={webSearchEnabled ? 'Search on' : 'Search'} active={webSearchEnabled} onClick={() => onToggleWebSearch?.(!webSearchEnabled)}>
-              <Globe className="h-5 w-5" />
-            </IconButton>
-            <div className="min-w-0">
-              <ModelSelector />
-            </div>
+            <motion.button
+              type="button"
+              disabled={isUploading}
+              onClick={() => setIsAttachMenuOpen(open => !open)}
+              animate={{ rotate: isAttachMenuOpen ? 45 : 0 }}
+              whileTap={{ scale: 0.92 }}
+              transition={{ type: 'spring', stiffness: 420, damping: 28 }}
+              className={`flex h-10 w-10 items-center justify-center rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-50 sm:h-11 sm:w-11 ${isAttachMenuOpen ? 'bg-slate-100 text-slate-950 dark:bg-slate-800 dark:text-slate-100' : 'text-slate-500 hover:bg-slate-100 hover:text-slate-950 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100'}`}
+              aria-label="Open tools menu"
+              aria-expanded={isAttachMenuOpen}
+              title="Open tools menu"
+            >
+              <Plus className="h-5 w-5" />
+            </motion.button>
+            <AnimatePresence>
+              {isAttachMenuOpen && (
+                <AttachMenu
+                  isUploading={isUploading}
+                  webSearchEnabled={webSearchEnabled}
+                  onUpload={openFilePicker}
+                  onToggleWebSearch={onToggleWebSearch}
+                  onClose={() => setIsAttachMenuOpen(false)}
+                />
+              )}
+            </AnimatePresence>
           </div>
 
-          <div className="flex shrink-0 items-center gap-1">
-            <div className="hidden items-center gap-1 sm:flex">
-              <IconButton label="Prompt tag">
-                <Hash className="h-5 w-5" />
-              </IconButton>
-              {isDictationEnabled && (
-                <IconButton label={isDictating ? 'Stop dictation' : 'Voice'} onClick={toggleDictation}>
-                  <Mic className={`h-5 w-5 ${isDictating ? 'text-red-500' : ''}`} />
-                </IconButton>
-              )}
-              <IconButton label="Idea">
-                <Lightbulb className="h-5 w-5" />
-              </IconButton>
+          <textarea
+            ref={textareaRef}
+            placeholder={placeholder}
+            className="min-h-10 flex-1 resize-none bg-transparent px-1 py-2.5 text-[16px] font-medium leading-snug text-slate-800 outline-none placeholder:text-slate-400 custom-scrollbar sm:min-h-11 sm:py-3 dark:text-slate-100 dark:placeholder:text-slate-500"
+            style={{ maxHeight: maxTextareaHeight }}
+            rows={1}
+            value={value}
+            onChange={(event) => onChange(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' && !event.shiftKey) {
+                event.preventDefault();
+                submit();
+              }
+            }}
+          />
+
+          <div className="flex min-w-0 shrink-0 items-center gap-1">
+            <div className="hidden min-w-0 max-w-[9rem] sm:block lg:max-w-[13rem]">
+              <ModelSelector />
             </div>
+            {isDictationEnabled && (
+              <IconButton label={isDictating ? 'Stop dictation' : 'Voice'} onClick={toggleDictation}>
+                <Mic className={`h-5 w-5 ${isDictating ? 'text-red-500' : ''}`} />
+              </IconButton>
+            )}
             <button
               type={isBusy ? 'button' : 'submit'}
               disabled={isUploading || (!isBusy && !canSubmit)}
@@ -323,6 +361,74 @@ export default function ChatComposer({
         </div>
       </form>
     </div>
+  );
+}
+
+function AttachMenu({ isUploading, webSearchEnabled, onUpload, onToggleWebSearch, onClose }: { isUploading?: boolean; webSearchEnabled?: boolean; onUpload: () => void; onToggleWebSearch?: (enabled: boolean) => void; onClose: () => void }) {
+  const menuItems = [
+    {
+      label: 'Add photos & files',
+      hint: 'Ctrl + U',
+      icon: <Paperclip className="h-5 w-5" />,
+      onClick: onUpload,
+      disabled: isUploading
+    },
+    {
+      label: 'Recent files',
+      icon: <FileText className="h-5 w-5" />,
+      trailing: <ChevronRight className="h-4 w-4" />,
+      onClick: onClose
+    },
+    {
+      label: 'Create image',
+      icon: <ImageIcon className="h-5 w-5" />,
+      onClick: onClose
+    },
+    {
+      label: 'Deep research',
+      icon: <BookOpen className="h-5 w-5" />,
+      onClick: onClose
+    },
+    {
+      label: 'Web search',
+      icon: <Globe className="h-5 w-5" />,
+      active: webSearchEnabled,
+      onClick: () => {
+        onToggleWebSearch?.(!webSearchEnabled);
+        onClose();
+      }
+    },
+    {
+      label: 'More',
+      icon: <MoreHorizontal className="h-5 w-5" />,
+      trailing: <ChevronRight className="h-4 w-4" />,
+      onClick: onClose
+    }
+  ];
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 10, scale: 0.96 }}
+      animate={{ opacity: 1, y: 0, scale: 1 }}
+      exit={{ opacity: 0, y: 10, scale: 0.96 }}
+      transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
+      className="absolute bottom-full left-0 z-50 mb-3 w-[min(17rem,calc(100vw-2rem))] origin-bottom-left overflow-hidden rounded-2xl border border-slate-200 bg-white p-1.5 text-slate-800 shadow-2xl shadow-slate-300/35 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:shadow-black/45"
+    >
+      {menuItems.map((item, index) => (
+        <button
+          key={item.label}
+          type="button"
+          disabled={item.disabled}
+          onClick={item.onClick}
+          className={`flex h-11 w-full items-center gap-3 rounded-xl px-3 text-left text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${item.active ? 'bg-slate-100 text-slate-950 dark:bg-slate-800 dark:text-white' : 'hover:bg-slate-100 dark:hover:bg-slate-800'} ${index === 1 ? 'mb-1 border-b border-slate-100 pb-1 dark:border-slate-800' : ''}`}
+        >
+          <span className="flex h-5 w-5 shrink-0 items-center justify-center text-slate-700 dark:text-slate-200">{item.icon}</span>
+          <span className="min-w-0 flex-1 truncate">{item.label}</span>
+          {item.hint && <span className="shrink-0 text-xs font-medium text-slate-400">{item.hint}</span>}
+          {item.trailing && <span className="shrink-0 text-slate-500">{item.trailing}</span>}
+        </button>
+      ))}
+    </motion.div>
   );
 }
 

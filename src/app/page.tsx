@@ -257,7 +257,7 @@ export default function WelcomePage() {
       </div>
 
       <div className="shrink-0 px-4 pb-4 sm:px-6 sm:pb-6">
-        <div className="mx-auto flex w-full max-w-4xl flex-col gap-2">
+        <div className="mx-auto flex w-full max-w-3xl flex-col gap-2">
           <ChatComposer
             value={input}
             attachedFiles={attachedFiles}
