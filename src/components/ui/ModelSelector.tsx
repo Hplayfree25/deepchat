@@ -2,6 +2,8 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Bot, CheckCircle2, ChevronDown, Database, Settings, Sparkles } from 'lucide-react';
+import { useShortcutLabels } from '@/components/shortcuts';
+import Tooltip from '@/components/ui/Tooltip';
 
 interface SelectedModel {
   id: string;
@@ -57,6 +59,7 @@ const loadStoredModel = (): SelectedModel => {
 export default function ModelSelector() {
   const [isOpen, setIsOpen] = useState(false);
   const [selectedModel, setSelectedModel] = useState<SelectedModel>(loadStoredModel);
+  const shortcuts = useShortcutLabels();
 
   const handleSelect = (modelId: string, modelName: string, connectionId: string) => {
     const nextModel = { id: modelId, name: modelName, connectionId };
@@ -69,26 +72,38 @@ export default function ModelSelector() {
 
   useEffect(() => {
     const syncModel = () => setSelectedModel(loadStoredModel());
+    const openModelSelector = () => setIsOpen(true);
+    const closeModelSelector = () => setIsOpen(false);
     window.addEventListener('storage', syncModel);
     window.addEventListener('modelSelected', syncModel);
+    window.addEventListener('openModelSelector', openModelSelector);
+    window.addEventListener('closeModelSelector', closeModelSelector);
     return () => {
       window.removeEventListener('storage', syncModel);
       window.removeEventListener('modelSelected', syncModel);
+      window.removeEventListener('openModelSelector', openModelSelector);
+      window.removeEventListener('closeModelSelector', closeModelSelector);
     };
   }, []);
 
+  useEffect(() => {
+    if (isOpen) window.dispatchEvent(new Event('modelSelectorOpened'));
+  }, [isOpen]);
+
   return (
     <div className="relative min-w-0">
-      <button
-        type="button"
-        onClick={() => setIsOpen(open => !open)}
-        className="flex h-10 max-w-full items-center gap-1.5 rounded-full px-2 text-slate-400 transition-colors hover:bg-slate-100 hover:text-indigo-600 dark:hover:bg-slate-800 sm:max-w-[9rem] lg:max-w-[13rem]"
-        aria-label="Select model"
-      >
-        <Sparkles className="h-5 w-5 shrink-0" />
-        <span className="hidden min-w-0 truncate text-xs font-bold sm:block">{selectedModel.name || selectedModel.id}</span>
-        <ChevronDown className={`h-3.5 w-3.5 shrink-0 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
-      </button>
+      <Tooltip label="Select Model" shortcuts={[{ label: shortcuts.selectModel.join('+'), tone: 'muted' }]} side="bottom" disabled={isOpen}>
+        <button
+          type="button"
+          onClick={() => setIsOpen(open => !open)}
+          className="flex h-10 max-w-full items-center gap-1.5 rounded-full px-2 text-slate-400 transition-colors hover:bg-slate-100 hover:text-indigo-600 dark:hover:bg-slate-800 sm:max-w-[9rem] lg:max-w-[13rem]"
+          aria-label="Select model"
+        >
+          <Sparkles className="h-5 w-5 shrink-0" strokeWidth={2.35} />
+          <span className="hidden min-w-0 truncate text-xs font-bold sm:block">{selectedModel.name || selectedModel.id}</span>
+          <ChevronDown className={`h-3.5 w-3.5 shrink-0 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
+        </button>
+      </Tooltip>
       {isOpen && (
         <ModelMenu
           currentModel={selectedModel}

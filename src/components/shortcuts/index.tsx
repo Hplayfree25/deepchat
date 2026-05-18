@@ -2,7 +2,7 @@
 
 import React, { useSyncExternalStore } from 'react';
 
-type ShortcutId = 'newChat' | 'search' | 'uploadFile';
+type ShortcutId = 'newChat' | 'search' | 'uploadFile' | 'selectModel' | 'dictation';
 type ShortcutPlatform = 'apple' | 'default';
 export type ShortcutLabels = Record<ShortcutId, string[]>;
 
@@ -10,12 +10,16 @@ const shortcutKeys: Record<ShortcutPlatform, ShortcutLabels> = {
   apple: {
     newChat: ['Cmd', 'K'],
     search: ['Cmd', 'F'],
-    uploadFile: ['Cmd', 'U']
+    uploadFile: ['Cmd', 'U'],
+    selectModel: ['Cmd', 'Shift', 'M'],
+    dictation: ['Cmd', 'Shift', 'D']
   },
   default: {
     newChat: ['Ctrl', 'K'],
     search: ['Ctrl', 'F'],
-    uploadFile: ['Ctrl', 'U']
+    uploadFile: ['Ctrl', 'U'],
+    selectModel: ['Ctrl', 'Shift', 'M'],
+    dictation: ['Ctrl', 'Shift', 'D']
   }
 };
 
@@ -33,7 +37,10 @@ export function isShortcutEvent(event: KeyboardEvent, shortcut: ShortcutId) {
   const key = event.key.toLowerCase();
   const modifierPressed = getPlatform() === 'apple' ? event.metaKey : event.ctrlKey;
 
-  if (!modifierPressed || event.altKey || event.shiftKey) return false;
+  if (!modifierPressed || event.altKey) return false;
+  if (shortcut === 'selectModel') return event.shiftKey && key === 'm';
+  if (shortcut === 'dictation') return event.shiftKey && key === 'd';
+  if (event.shiftKey) return false;
   if (shortcut === 'newChat') return key === 'k';
   if (shortcut === 'search') return key === 'f';
   return key === 'u';

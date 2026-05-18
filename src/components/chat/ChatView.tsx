@@ -4,6 +4,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { getChat, saveMessage, uploadFile } from '@/app/actions';
 import MarkdownRenderer from '@/components/ui/MarkdownRenderer';
 import ChatComposer, { getComposerFileIcon } from '@/components/ui/ChatComposer';
+import Tooltip from '@/components/ui/Tooltip';
 import {
   ChatGenerationSnapshot,
   type MCPUsageItem,
@@ -1135,6 +1136,22 @@ function ImageGenerationLoader() {
   );
 }
 
+function MessageActionButton({ label, tooltip = label, disabled, className, onClick, children }: { label: string; tooltip?: string; disabled?: boolean; className: string; onClick?: () => void; children: React.ReactNode }) {
+  return (
+    <Tooltip label={tooltip}>
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={onClick}
+        className={className}
+        aria-label={label}
+      >
+        {children}
+      </button>
+    </Tooltip>
+  );
+}
+
 const MessageBubble = React.memo(function MessageBubble({ message, onRegenerate, onSwitchVersion, canEditUserMessage = false, onEditUserMessage, isMobileActionsOpen = false, onActivateMobileActions }: MessageBubbleProps) {
   const isUser = message.role === 'user';
   const [copied, setCopied] = useState(false);
@@ -1290,23 +1307,23 @@ const MessageBubble = React.memo(function MessageBubble({ message, onRegenerate,
 
         {isUser && !isEditingUserMessage && (
           <div className={`mt-0 flex h-7 max-w-full flex-wrap items-center justify-end gap-1 transition-opacity duration-200 sm:gap-1.5 sm:pointer-events-none sm:opacity-0 sm:group-hover/message:pointer-events-auto sm:group-hover/message:opacity-100 sm:group-focus-within/message:pointer-events-auto sm:group-focus-within/message:opacity-100 ${isMobileActionsOpen ? 'pointer-events-auto opacity-100' : 'pointer-events-none opacity-0'}`}>
-            <button
+            <MessageActionButton
+              label={copied ? 'Copied' : 'Copy message'}
+              tooltip={copied ? 'Copied' : 'Copy message'}
               onClick={handleCopy}
               className="rounded-md p-1.5 text-slate-400 transition-colors hover:bg-indigo-50 hover:text-indigo-600"
-              aria-label={copied ? 'Copied' : 'Copy message'}
-              title={copied ? 'Copied' : 'Copy'}
             >
-              {copied ? <Check className="h-4 w-4 text-emerald-500" /> : <Copy className="h-4 w-4" />}
-            </button>
+              {copied ? <Check className="h-4 w-4 text-emerald-500" strokeWidth={2.5} /> : <Copy className="h-4 w-4" strokeWidth={2.35} />}
+            </MessageActionButton>
             {canEditUserMessage && (
-              <button
+              <MessageActionButton
+                label="Edit message"
+                tooltip="Edit message"
                 onClick={startUserEdit}
                 className="rounded-md p-1.5 text-slate-400 transition-colors hover:bg-indigo-50 hover:text-indigo-600"
-                aria-label="Edit message"
-                title="Edit"
               >
-                <Edit3 className="h-4 w-4" />
-              </button>
+                <Edit3 className="h-4 w-4" strokeWidth={2.35} />
+              </MessageActionButton>
             )}
           </div>
         )}
@@ -1315,59 +1332,61 @@ const MessageBubble = React.memo(function MessageBubble({ message, onRegenerate,
           <div className={`mt-0 ml-1 flex h-7 max-w-full flex-wrap items-center gap-1 transition-opacity duration-200 sm:gap-1.5 sm:pointer-events-none sm:opacity-0 sm:group-hover/message:pointer-events-auto sm:group-hover/message:opacity-100 sm:group-focus-within/message:pointer-events-auto sm:group-focus-within/message:opacity-100 ${isMobileActionsOpen ? 'pointer-events-auto opacity-100' : 'pointer-events-none opacity-0'}`}>
             {hasVersions && (
               <div className="flex items-center gap-1 bg-slate-100/80 rounded-lg px-1.5 py-1 mr-2 border border-slate-200/60">
-                <button
+                <MessageActionButton
+                  label="Previous response version"
+                  tooltip="Previous version"
                   onClick={() => onSwitchVersion && onSwitchVersion(-1)}
                   disabled={currentIdx === 0}
                   className="p-0.5 text-slate-400 hover:text-slate-700 disabled:opacity-30 transition-colors"
-                  aria-label="Previous response version"
                 >
-                  <ChevronLeft className="w-4 h-4" />
-                </button>
+                  <ChevronLeft className="w-4 h-4" strokeWidth={2.35} />
+                </MessageActionButton>
                 <span className="text-[11px] font-bold text-slate-500 w-7 text-center">
                   {currentIdx + 1} / {totalVersions}
                 </span>
-                <button
+                <MessageActionButton
+                  label="Next response version"
+                  tooltip="Next version"
                   onClick={() => onSwitchVersion && onSwitchVersion(1)}
                   disabled={currentIdx === totalVersions - 1}
                   className="p-0.5 text-slate-400 hover:text-slate-700 disabled:opacity-30 transition-colors"
-                  aria-label="Next response version"
                 >
-                  <ChevronRight className="w-4 h-4" />
-                </button>
+                  <ChevronRight className="w-4 h-4" strokeWidth={2.35} />
+                </MessageActionButton>
               </div>
             )}
 
-            <button
+            <MessageActionButton
+              label={copied ? 'Copied' : 'Copy response'}
+              tooltip={copied ? 'Copied' : 'Copy response'}
               onClick={handleCopy}
               className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-md transition-colors"
-              aria-label={copied ? 'Copied' : 'Copy response'}
-              title="Copy"
             >
-              {copied ? <Check className="w-4 h-4 text-emerald-500" /> : <Copy className="w-4 h-4" />}
-            </button>
-            <button
+              {copied ? <Check className="w-4 h-4 text-emerald-500" strokeWidth={2.5} /> : <Copy className="w-4 h-4" strokeWidth={2.35} />}
+            </MessageActionButton>
+            <MessageActionButton
+              label="Like response"
+              tooltip="Like response"
               className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-md transition-colors"
-              aria-label="Like response"
-              title="Like"
             >
-              <ThumbsUp className="w-4 h-4" />
-            </button>
-            <button
+              <ThumbsUp className="w-4 h-4" strokeWidth={2.35} />
+            </MessageActionButton>
+            <MessageActionButton
+              label="Dislike response"
+              tooltip="Dislike response"
               className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-md transition-colors"
-              aria-label="Dislike response"
-              title="Dislike"
             >
-              <ThumbsDown className="w-4 h-4" />
-            </button>
+              <ThumbsDown className="w-4 h-4" strokeWidth={2.35} />
+            </MessageActionButton>
             {onRegenerate && (
-              <button
+              <MessageActionButton
+                label="Regenerate response"
+                tooltip="Regenerate response"
                 onClick={onRegenerate}
                 className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-md transition-colors"
-                aria-label="Regenerate response"
-                title="Regenerate"
               >
-                <RefreshCcw className="w-4 h-4" />
-              </button>
+                <RefreshCcw className="w-4 h-4" strokeWidth={2.35} />
+              </MessageActionButton>
             )}
           </div>
         )}

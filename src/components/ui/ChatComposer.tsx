@@ -14,6 +14,7 @@ import {
   Paperclip,
   PenLine,
   Plus,
+  CornerDownLeft,
   Send,
   Square,
   SquareMousePointer,
@@ -24,6 +25,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { getChats } from '@/app/actions';
 import { isShortcutEvent, useShortcutLabels } from '@/components/shortcuts';
 import ModelSelector from './ModelSelector';
+import Tooltip from './Tooltip';
 import { getDictationLanguage, loadGeneralSettings, subscribeGeneralSettings } from '@/lib/general-settings';
 
 export interface ComposerFile {
@@ -171,6 +173,12 @@ export default function ChatComposer({
   }, [isAttachMenuOpen]);
 
   useEffect(() => {
+    const closeAttachMenu = () => setIsAttachMenuOpen(false);
+    window.addEventListener('modelSelectorOpened', closeAttachMenu);
+    return () => window.removeEventListener('modelSelectorOpened', closeAttachMenu);
+  }, []);
+
+  useEffect(() => {
     let mounted = true;
     const loadRecentFiles = async () => {
       const chats = await getChats() as ComposerChatSummary[];
@@ -222,6 +230,14 @@ export default function ChatComposer({
     fileInputRef.current?.click();
     setIsAttachMenuOpen(false);
   }, [isUploading]);
+
+  const toggleAttachMenu = () => {
+    setIsAttachMenuOpen(open => {
+      const nextOpen = !open;
+      if (nextOpen) window.dispatchEvent(new Event('closeModelSelector'));
+      return nextOpen;
+    });
+  };
 
   useEffect(() => {
     const handleUploadShortcut = (event: KeyboardEvent) => {
@@ -278,6 +294,25 @@ export default function ChatComposer({
     setIsDictating(true);
     recognition.start();
   };
+
+  useEffect(() => {
+    const handleComposerShortcut = (event: KeyboardEvent) => {
+      if (isShortcutEvent(event, 'selectModel')) {
+        event.preventDefault();
+        event.stopPropagation();
+        setIsAttachMenuOpen(false);
+        window.dispatchEvent(new Event('openModelSelector'));
+        return;
+      }
+      if (isShortcutEvent(event, 'dictation')) {
+        event.preventDefault();
+        event.stopPropagation();
+        toggleDictation();
+      }
+    };
+    window.addEventListener('keydown', handleComposerShortcut, true);
+    return () => window.removeEventListener('keydown', handleComposerShortcut, true);
+  });
 
   const getClipboardFiles = (clipboardData: DataTransfer) => {
     const files: File[] = [];
@@ -370,20 +405,21 @@ export default function ChatComposer({
                 event.target.value = '';
               }}
             />
-            <motion.button
-              type="button"
-              disabled={isUploading}
-              onClick={() => setIsAttachMenuOpen(open => !open)}
-              animate={{ rotate: isAttachMenuOpen ? 45 : 0 }}
-              whileTap={{ scale: 0.92 }}
-              transition={{ type: 'spring', stiffness: 420, damping: 28 }}
-              className={`flex h-10 w-10 items-center justify-center rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-50 sm:h-11 sm:w-11 ${isAttachMenuOpen ? 'bg-slate-100 text-slate-950 dark:bg-slate-800 dark:text-slate-100' : 'text-slate-500 hover:bg-slate-100 hover:text-slate-950 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100'}`}
-              aria-label="Open tools menu"
-              aria-expanded={isAttachMenuOpen}
-              title="Open tools menu"
-            >
-              <Plus className="h-5 w-5" />
-            </motion.button>
+            <Tooltip label="Add Files and more" shortcuts={[{ label: '/', tone: 'key' }]} side="bottom" align="start" disabled={isAttachMenuOpen}>
+              <motion.button
+                type="button"
+                disabled={isUploading}
+                onClick={toggleAttachMenu}
+                animate={{ rotate: isAttachMenuOpen ? 45 : 0 }}
+                whileTap={{ scale: 0.92 }}
+                transition={{ type: 'spring', stiffness: 420, damping: 28 }}
+                className={`flex h-10 w-10 items-center justify-center rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-50 sm:h-11 sm:w-11 ${isAttachMenuOpen ? 'bg-slate-100 text-slate-950 dark:bg-slate-800 dark:text-slate-100' : 'text-slate-500 hover:bg-slate-100 hover:text-slate-950 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100'}`}
+                aria-label="Open tools menu"
+                aria-expanded={isAttachMenuOpen}
+              >
+                <Plus className="h-5 w-5" strokeWidth={2.35} />
+              </motion.button>
+            </Tooltip>
             <AnimatePresence>
               {isAttachMenuOpen && (
                 <AttachMenu
@@ -424,20 +460,21 @@ export default function ChatComposer({
               <ModelSelector />
             </div>
             {isDictationEnabled && (
-              <IconButton label={isDictating ? 'Stop dictation' : 'Voice'} onClick={toggleDictation}>
-                <Mic className={`h-5 w-5 ${isDictating ? 'text-red-500' : ''}`} />
+              <IconButton label={isDictating ? 'Stop dictation' : 'Dictate'} tooltip={isDictating ? 'Stop dictation' : 'Dictate'} shortcut={shortcuts.dictation.join('+')} onClick={toggleDictation}>
+                <Mic className={`h-5 w-5 ${isDictating ? 'text-red-500' : ''}`} strokeWidth={2.35} />
               </IconButton>
             )}
-            <button
-              type={isBusy ? 'button' : 'submit'}
-              disabled={isUploading || (!isBusy && !canSubmit)}
-              onClick={isBusy ? onStop : undefined}
-              className={`flex h-10 w-10 items-center justify-center rounded-full text-white transition-all hover:-translate-y-0.5 disabled:translate-y-0 disabled:bg-slate-300 sm:h-11 sm:w-11 ${isBusy ? 'bg-red-500 hover:bg-red-600' : 'bg-slate-950 hover:bg-indigo-600'}`}
-              aria-label={isBusy ? 'Stop generating' : 'Send message'}
-              title={isBusy ? 'Stop generating' : 'Send message'}
-            >
-              {isBusy ? <Square className="h-4 w-4 fill-current" /> : <Send className="h-5 w-5" />}
-            </button>
+            <Tooltip label={isBusy ? 'Stop generating' : 'Send prompt'} shortcuts={isBusy ? [] : [{ label: <CornerDownLeft className="h-3.5 w-3.5" strokeWidth={2.4} />, tone: 'icon' }]} side="bottom" align="end">
+              <button
+                type={isBusy ? 'button' : 'submit'}
+                disabled={isUploading || (!isBusy && !canSubmit)}
+                onClick={isBusy ? onStop : undefined}
+                className={`flex h-10 w-10 items-center justify-center rounded-full text-white transition-all hover:-translate-y-0.5 disabled:translate-y-0 disabled:bg-slate-300 sm:h-11 sm:w-11 ${isBusy ? 'bg-red-500 hover:bg-red-600' : 'bg-slate-950 hover:bg-indigo-600'}`}
+                aria-label={isBusy ? 'Stop generating' : 'Send message'}
+              >
+                {isBusy ? <Square className="h-4 w-4 fill-current" strokeWidth={2.35} /> : <Send className="h-5 w-5" strokeWidth={2.35} />}
+              </button>
+            </Tooltip>
           </div>
         </div>
       </form>
@@ -593,19 +630,20 @@ function AttachMenu({ isUploading, webSearchEnabled, uploadShortcut, recentFiles
   );
 }
 
-function IconButton({ children, disabled, label, active, onClick }: { children: React.ReactNode; disabled?: boolean; label: string; active?: boolean; onClick?: () => void }) {
+function IconButton({ children, disabled, label, tooltip = label, shortcut, active, onClick }: { children: React.ReactNode; disabled?: boolean; label: string; tooltip?: string; shortcut?: string; active?: boolean; onClick?: () => void }) {
   return (
-    <button
-      type="button"
-      disabled={disabled}
-      onClick={onClick}
-      className={`flex h-9 w-9 items-center justify-center rounded-full transition-all disabled:cursor-not-allowed disabled:opacity-50 sm:h-10 sm:w-10 ${active ? 'bg-emerald-50 text-emerald-600 ring-1 ring-emerald-200 hover:bg-emerald-100 dark:bg-emerald-500/15 dark:text-emerald-300 dark:ring-emerald-500/30' : 'text-slate-400 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-500 dark:hover:bg-slate-800 dark:hover:text-slate-100'}`}
-      aria-label={label}
-      title={label}
-      aria-pressed={active}
-    >
-      {children}
-    </button>
+    <Tooltip label={tooltip} shortcuts={shortcut ? [{ label: shortcut, tone: 'muted' }] : []} side="bottom">
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={onClick}
+        className={`flex h-9 w-9 items-center justify-center rounded-full transition-all disabled:cursor-not-allowed disabled:opacity-50 sm:h-10 sm:w-10 ${active ? 'bg-emerald-50 text-emerald-600 ring-1 ring-emerald-200 hover:bg-emerald-100 dark:bg-emerald-500/15 dark:text-emerald-300 dark:ring-emerald-500/30' : 'text-slate-400 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-500 dark:hover:bg-slate-800 dark:hover:text-slate-100'}`}
+        aria-label={label}
+        aria-pressed={active}
+      >
+        {children}
+      </button>
+    </Tooltip>
   );
 }
 
