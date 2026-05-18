@@ -56,6 +56,7 @@ const MarkdownRenderer = React.memo(function MarkdownRenderer({ content, isStrea
         <ReactMarkdown
           remarkPlugins={[remarkGfm, remarkMath]}
           rehypePlugins={[rehypeKatex]}
+          urlTransform={transformMarkdownUrl}
           components={{
             code({ className, children, ...props }: React.ComponentProps<'code'>) {
               const match = /language-([\w-]+)/.exec(className || '');
@@ -121,6 +122,11 @@ const MarkdownRenderer = React.memo(function MarkdownRenderer({ content, isStrea
                 return <CitationLink source={linkedSource} />;
               }
               return <a href={href} target="_blank" rel="noopener noreferrer" className="text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 hover:underline font-medium">{children}</a>;
+            },
+            img({ src, alt }) {
+              const imageSrc = typeof src === 'string' ? src : '';
+              if (!imageSrc) return null;
+              return <GeneratedMarkdownImage src={imageSrc} alt={alt || 'Generated image'} />;
             }
           }}
         >
@@ -130,6 +136,37 @@ const MarkdownRenderer = React.memo(function MarkdownRenderer({ content, isStrea
     </ClientOnly>
   );
 });
+
+function GeneratedMarkdownImage({ src, alt }: { src: string; alt: string }) {
+  const [imageSize, setImageSize] = useState({ width: 1024, height: 1024 });
+  const ratio = imageSize.width / imageSize.height;
+  const displayWidth = ratio < 1
+    ? Math.min(Math.max(imageSize.width, 260), Math.max(260, Math.round(520 * ratio)))
+    : Math.min(Math.max(imageSize.width, 260), 760);
+
+  return (
+    <span
+      className="not-prose my-4 block max-w-full overflow-hidden rounded-[1.75rem] border border-slate-200 bg-white p-2 shadow-lg shadow-slate-200/70 dark:border-slate-700 dark:bg-slate-950"
+      style={{
+        width: `min(100%, ${displayWidth}px)`
+      }}
+    >
+      {React.createElement('img', {
+        src,
+        alt,
+        loading: 'lazy',
+        decoding: 'async',
+        onLoad: (event: React.SyntheticEvent<HTMLImageElement>) => {
+          const target = event.currentTarget;
+          if (target.naturalWidth > 0 && target.naturalHeight > 0) {
+            setImageSize({ width: target.naturalWidth, height: target.naturalHeight });
+          }
+        },
+        className: 'block h-auto max-h-[72vh] w-full rounded-[1.35rem] object-contain'
+      })}
+    </span>
+  );
+}
 
 function CitationLink({ source }: { source: SearchSource }) {
   const displayLabel = getCitationLabel(source);
@@ -255,6 +292,14 @@ function getSourceByUrl(url: string, sources: SearchSource[]) {
 
 function formatMarkdownHref(url: string) {
   return url.replace(/\(/g, '%28').replace(/\)/g, '%29').replace(/\s/g, '%20');
+}
+
+function transformMarkdownUrl(url: string) {
+  const value = url.trim();
+  if (/^data:image\/(?:png|jpe?g|webp|gif);base64,[a-z0-9+/=\s]+$/i.test(value)) return value.replace(/\s/g, '');
+  if (/^(https?:|mailto:|irc:|ircs:|xmpp:)/i.test(value)) return value;
+  if (/^(#|\/(?!\/)|\.\/|\.\.\/)/.test(value)) return value;
+  return '';
 }
 
 function normalizeUrl(url: string) {

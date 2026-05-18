@@ -448,6 +448,22 @@ const searchDuckDuckGo = async (query: string) => {
   return uniqueSources(sources);
 };
 
+const searchBing = async (query: string) => {
+  const html = await getText(`https://www.bing.com/search?q=${encodeURIComponent(query)}`);
+  const sources: SearchSource[] = [];
+  const resultPattern = /<li class="b_algo"[\s\S]*?<h2[^>]*>\s*<a[^>]+href="([^"]+)"[^>]*>([\s\S]*?)<\/a>[\s\S]*?(?:<p[^>]*>([\s\S]*?)<\/p>)?/gi;
+  let match: RegExpExecArray | null;
+  while ((match = resultPattern.exec(html)) && sources.length < MAX_SEARCH_RESULTS) {
+    const source = normalizeSearchSource({
+      url: decodeHtmlEntities(match[1]),
+      title: decodeHtmlEntities(match[2]),
+      snippet: decodeHtmlEntities(match[3] || '')
+    });
+    if (source) sources.push(source);
+  }
+  return uniqueSources(sources);
+};
+
 const searchWikipedia = async (query: string) => {
   const data = await getJson(`https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(query)}&format=json&origin=*&srlimit=${MAX_SEARCH_RESULTS}`);
   const items = isRecord(data) && isRecord(data.query) && Array.isArray(data.query.search) ? data.query.search : [];
@@ -461,6 +477,34 @@ const searchWikipedia = async (query: string) => {
       snippet: typeof item.snippet === 'string' ? item.snippet : ''
     });
   }).filter((item): item is SearchSource => Boolean(item)));
+};
+
+const searchPerplexity = async (query: string, tool: ChatToolRuntimeItem) => {
+  const apiKey = tool.config.PERPLEXITY_API_KEY;
+  if (!apiKey) throw new Error('PERPLEXITY_API_KEY is missing');
+  const data = await getJson('https://api.perplexity.ai/chat/completions', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+    body: JSON.stringify({
+      model: 'sonar',
+      messages: [
+        {
+          role: 'user',
+          content: query
+        }
+      ]
+    })
+  });
+  const citations = isRecord(data) && Array.isArray(data.citations) ? data.citations : [];
+  const choices = isRecord(data) && Array.isArray(data.choices) ? data.choices : [];
+  const firstChoice = choices[0];
+  const message = isRecord(firstChoice) && isRecord(firstChoice.message) ? firstChoice.message : null;
+  const snippet = typeof message?.content === 'string' ? message.content : '';
+  return uniqueSources(citations.map(citation => typeof citation === 'string' ? normalizeSearchSource({
+    title: getHost(citation) || citation,
+    url: citation,
+    snippet
+  }) : null).filter((item): item is SearchSource => Boolean(item)));
 };
 
 const searchBrave = async (query: string, tool: ChatToolRuntimeItem) => {
@@ -584,6 +628,7 @@ const searchOpenAICompatible = async (query: string, tool: ChatToolRuntimeItem) 
 const searchWithTool = async (query: string, tool: ChatToolRuntimeItem) => {
   if (tool.toolId === 'brave-search') return searchBrave(query, tool);
   if (tool.toolId === 'tavily') return searchTavily(query, tool);
+  if (tool.toolId === 'perplexity') return searchPerplexity(query, tool);
   if (tool.toolId === 'serpapi') return searchSerpApi(query, tool);
   if (tool.toolId === 'google-custom-search') return searchGoogleCustom(query, tool);
   if (tool.toolId === 'exa') return searchExa(query, tool);
@@ -591,6 +636,7 @@ const searchWithTool = async (query: string, tool: ChatToolRuntimeItem) => {
   if (tool.toolId === 'linkup') return searchLinkup(query, tool);
   if (tool.toolId === 'openai-compatible-search') return searchOpenAICompatible(query, tool);
   if (tool.toolId === 'wikipedia') return searchWikipedia(query);
+  if (tool.toolId === 'bing') return searchBing(query);
   return searchDuckDuckGo(query);
 };
 

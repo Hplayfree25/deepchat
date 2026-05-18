@@ -1813,7 +1813,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                     checked={toolSettings.searchEnabled}
                     onChange={checked => updateToolFeatures({ searchEnabled: checked })}
                     actionLabel="Manage"
-                    meta={toolSettings.installed.find(tool => tool.enabled)?.name || 'No provider selected'}
+                    meta={toolSettings.installed.find(tool => tool.enabled)?.name || 'DuckDuckGo default'}
                     onAction={openSearchManager}
                   />
                   <ToolFeatureRow
@@ -2163,7 +2163,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                   <div className="flex items-center justify-between gap-3">
                     <div>
                       <p className="text-sm font-extrabold text-slate-800 dark:text-slate-100">Installed providers</p>
-                      <p className="mt-1 text-xs font-medium text-slate-500 dark:text-slate-400">Only one Search provider can be active at a time.</p>
+                      <p className="mt-1 text-xs font-medium text-slate-500 dark:text-slate-400">Only one Search provider can be active at a time. DuckDuckGo is used by default when none is selected.</p>
                     </div>
                   </div>
                   {toolSettings.installed.map(tool => (

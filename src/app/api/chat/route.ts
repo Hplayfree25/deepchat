@@ -7,6 +7,7 @@ import {
   getChatCompletionsUrl,
   getCleanBaseUrl,
   getGeminiModelPath,
+  getVertexModelPath,
   getVertexGenerateContentUrl,
   normalizeProvider,
   selectLlmConnection,
@@ -31,6 +32,8 @@ import {
   type MCPRuntimeUsageItem
 } from '@/lib/mcp-runtime';
 import { buildClarificationInstruction, parseAgentClarification } from '@/lib/agent-clarification';
+import { isGeminiImageModel, isImagenModel, isOpenAIImageModel } from '@/lib/image-generation';
+import { saveGeneratedImage } from '@/lib/generated-images';
 import fs from 'fs/promises';
 import path from 'path';
 
@@ -216,6 +219,13 @@ const getMCPStreamEvents = (usage: MCPRuntimeUsageItem[]) => {
   }));
 };
 
+type GeneratedImageOutput = {
+  mimeType: string;
+  base64?: string;
+  url?: string;
+  prompt?: string;
+};
+
 const getSearchSourceEvents = (sources: SearchSource[]) => {
   if (sources.length === 0) return [];
   return [{
@@ -275,6 +285,142 @@ const getVertexMessageText = (data: unknown) => {
   const content = data.candidates[0] && typeof data.candidates[0] === 'object' && 'content' in data.candidates[0] ? data.candidates[0].content : undefined;
   const parts = content && typeof content === 'object' && 'parts' in content ? content.parts : undefined;
   return readTextParts(parts);
+};
+
+const getImageGenerationPrompt = (messages: ChatMessage[]) => {
+  const latest = [...messages].reverse().find((m: unknown) => isChatMessageLike(m) && m.role === 'user');
+  const latestText = getRuntimeMessageText(latest);
+  if (latestText.trim()) return latestText.trim();
+  return messages
+    .filter(message => message.role === 'user' && typeof message.content === 'string')
+    .map(message => message.content)
+    .filter(Boolean)
+    .join('\n\n')
+    .trim();
+};
+
+const imageOutputToMarkdown = (images: GeneratedImageOutput[], text = '') => [
+  text.trim(),
+  ...images.map((image, index) => {
+    const src = image.base64 ? `data:${image.mimeType};base64,${image.base64}` : image.url || '';
+    return src ? `![image_${index + 1}](${src})` : '';
+  })
+].filter(Boolean).join('\n\n');
+
+const materializeGeneratedImages = async (images: GeneratedImageOutput[]) => {
+  const materialized: GeneratedImageOutput[] = [];
+  for (const image of images) {
+    if (!image.base64) {
+      materialized.push(image);
+      continue;
+    }
+    materialized.push({
+      ...image,
+      base64: undefined,
+      url: await saveGeneratedImage(image.base64, image.mimeType)
+    });
+  }
+  return materialized;
+};
+
+const getGeminiGeneratedImages = (data: unknown): GeneratedImageOutput[] => {
+  if (!data || typeof data !== 'object' || !('candidates' in data) || !Array.isArray(data.candidates)) return [];
+  return data.candidates.flatMap((candidate: unknown): GeneratedImageOutput[] => {
+    if (!candidate || typeof candidate !== 'object' || !('content' in candidate)) return [];
+    const content = candidate.content;
+    if (!content || typeof content !== 'object' || !('parts' in content) || !Array.isArray(content.parts)) return [];
+    return content.parts.reduce<GeneratedImageOutput[]>((images, part: unknown) => {
+      if (!part || typeof part !== 'object' || !('inlineData' in part)) return images;
+      const inlineData = part.inlineData;
+      if (!inlineData || typeof inlineData !== 'object') return images;
+      const data = 'data' in inlineData && typeof inlineData.data === 'string' ? inlineData.data : '';
+      const mimeType = 'mimeType' in inlineData && typeof inlineData.mimeType === 'string' ? inlineData.mimeType : 'image/png';
+      if (!data || !mimeType.startsWith('image/')) return images;
+      images.push({ mimeType, base64: data });
+      return images;
+    }, []);
+  });
+};
+
+const getImagenGeneratedImages = (data: unknown): GeneratedImageOutput[] => {
+  if (!data || typeof data !== 'object' || !('generatedImages' in data) || !Array.isArray(data.generatedImages)) return [];
+  return data.generatedImages.reduce<GeneratedImageOutput[]>((images, item: unknown) => {
+    if (!item || typeof item !== 'object' || !('image' in item)) return images;
+    const image = item.image;
+    if (!image || typeof image !== 'object') return images;
+    const base64 = 'imageBytes' in image && typeof image.imageBytes === 'string' ? image.imageBytes : '';
+    const mimeType = 'mimeType' in image && typeof image.mimeType === 'string' ? image.mimeType : 'image/png';
+    if (!base64) return images;
+    images.push({ mimeType, base64 });
+    return images;
+  }, []);
+};
+
+const getOpenAIImagesUrl = (cleanBaseUrl: string) => (
+  cleanBaseUrl ? `${cleanBaseUrl}/v1/images/generations` : 'https://api.openai.com/v1/images/generations'
+);
+
+const getOpenAIImageRequestBody = (model: string, prompt: string) => {
+  const body: Record<string, unknown> = {
+    model,
+    prompt,
+    n: 1,
+    size: '1024x1024'
+  };
+  if (!/\bgpt-image\b/i.test(model)) {
+    body.response_format = 'b64_json';
+  }
+  return body;
+};
+
+const getOpenAIGeneratedImages = (data: unknown): GeneratedImageOutput[] => {
+  if (!data || typeof data !== 'object' || !('data' in data) || !Array.isArray(data.data)) return [];
+  return data.data.map((item): GeneratedImageOutput | null => {
+    if (!item || typeof item !== 'object') return null;
+    const base64 = 'b64_json' in item && typeof item.b64_json === 'string' ? item.b64_json : '';
+    const url = 'url' in item && typeof item.url === 'string' ? item.url : '';
+    const prompt = 'revised_prompt' in item && typeof item.revised_prompt === 'string' ? item.revised_prompt : undefined;
+    if (!base64 && !url) return null;
+    return { mimeType: 'image/png', base64, url, prompt };
+  }).filter((item): item is GeneratedImageOutput => Boolean(item));
+};
+
+const getVertexImagenImages = (data: unknown): GeneratedImageOutput[] => {
+  if (!data || typeof data !== 'object' || !('predictions' in data) || !Array.isArray(data.predictions)) return [];
+  return data.predictions.map((item): GeneratedImageOutput | null => {
+    if (!item || typeof item !== 'object') return null;
+    const base64 = 'bytesBase64Encoded' in item && typeof item.bytesBase64Encoded === 'string' ? item.bytesBase64Encoded : '';
+    const mimeType = 'mimeType' in item && typeof item.mimeType === 'string' ? item.mimeType : 'image/png';
+    if (!base64) return null;
+    return { mimeType, base64 };
+  }).filter((item): item is GeneratedImageOutput => Boolean(item));
+};
+
+const inlineRemoteGeneratedImages = async (images: GeneratedImageOutput[]) => {
+  const inlined: GeneratedImageOutput[] = [];
+  for (const image of images) {
+    if (image.base64 || !image.url) {
+      inlined.push(image);
+      continue;
+    }
+    try {
+      const response = await fetch(image.url);
+      if (!response.ok) {
+        inlined.push(image);
+        continue;
+      }
+      const mimeType = response.headers.get('content-type')?.split(';')[0] || image.mimeType || 'image/png';
+      if (!mimeType.startsWith('image/')) {
+        inlined.push(image);
+        continue;
+      }
+      const bytes = Buffer.from(await response.arrayBuffer()).toString('base64');
+      inlined.push({ ...image, mimeType, base64: bytes, url: undefined });
+    } catch {
+      inlined.push(image);
+    }
+  }
+  return inlined;
 };
 
 const isReasoningParameterError = (message: string) => {
@@ -837,6 +983,158 @@ export async function POST(req: Request) {
       model: selectedModel,
       input: latestUserMessage
     };
+
+    if (p === 'gemini' && (isImagenModel(selectedModel) || isGeminiImageModel(selectedModel))) {
+      const { GoogleGenAI } = await import('@google/genai');
+      const aiOptions: { apiKey: string; httpOptions?: { baseUrl: string } } = { apiKey: conn.apiKey };
+      if (cleanBase) {
+        aiOptions.httpOptions = { baseUrl: cleanBase };
+      }
+      const ai = new GoogleGenAI(aiOptions);
+      const mPath = getGeminiModelPath(selectedModel);
+      const prompt = getImageGenerationPrompt(messages);
+      let images: GeneratedImageOutput[] = [];
+      let text = '';
+
+      if (isImagenModel(selectedModel)) {
+        const response = await ai.models.generateImages({
+          model: mPath,
+          prompt,
+          config: {
+            numberOfImages: 1,
+            outputMimeType: 'image/png',
+            aspectRatio: '1:1',
+            includeRaiReason: true,
+            enhancePrompt: true
+          }
+        });
+        images = getImagenGeneratedImages(response);
+      } else {
+        const geminiMessages = await buildGeminiContents(messages, ai);
+        const systemMessage = messages.find(m => m.role === 'system')?.content;
+        const response = await ai.models.generateContent({
+          model: mPath,
+          contents: geminiMessages,
+          config: {
+            ...(systemMessage ? { systemInstruction: systemMessage } : {}),
+            responseModalities: ['TEXT', 'IMAGE'],
+            imageConfig: {
+              aspectRatio: '1:1'
+            }
+          }
+        });
+        text = response.text || '';
+        images = getGeminiGeneratedImages(response);
+      }
+
+      if (images.length === 0) {
+        throw new Error('Image generation did not return an image. The model may have blocked the request or returned an unsupported response.');
+      }
+
+      const output = imageOutputToMarkdown(await materializeGeneratedImages(images), text);
+      logAiExchange({ ...aiLogPayload, output });
+      return singleSseResponse(p, { text: output, candidates: [{ content: { parts: [{ text: output }] } }] }, integrationEvents);
+    }
+
+    if (p === 'vertexai' && (isImagenModel(selectedModel) || isGeminiImageModel(selectedModel))) {
+      const prompt = getImageGenerationPrompt(messages);
+      let images: GeneratedImageOutput[] = [];
+      let text = '';
+
+      if (isImagenModel(selectedModel)) {
+        const res = await fetch(`https://${conn.location}-aiplatform.googleapis.com/v1/projects/${conn.projectId}/locations/${conn.location}/${getVertexModelPath(selectedModel)}:predict`, {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            Authorization: `Bearer ${conn.apiKey}`
+          },
+          body: JSON.stringify({
+            instances: [{ prompt }],
+            parameters: {
+              sampleCount: 1,
+              aspectRatio: '1:1',
+              includeRaiReason: true,
+              outputOptions: {
+                mimeType: 'image/png'
+              }
+            }
+          })
+        });
+        if (!res.ok) throw new Error(await getRouteResponseError(res));
+        images = getVertexImagenImages(await res.json());
+      } else {
+        const geminiMessages = await buildGeminiContents(messages);
+        const systemMessage = messages.find(m => m.role === 'system')?.content;
+        const res = await fetch(getVertexGenerateContentUrl(conn.projectId, conn.location, selectedModel, 'generateContent'), {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            Authorization: `Bearer ${conn.apiKey}`
+          },
+          body: JSON.stringify({
+            contents: geminiMessages,
+            ...(systemMessage ? { systemInstruction: { parts: [{ text: systemMessage }] } } : {}),
+            generationConfig: {
+              responseModalities: ['TEXT', 'IMAGE'],
+              imageConfig: {
+                aspectRatio: '1:1'
+              }
+            }
+          })
+        });
+        if (!res.ok) throw new Error(await getRouteResponseError(res));
+        const data = await res.json();
+        text = getVertexMessageText(data);
+        images = getGeminiGeneratedImages(data);
+      }
+
+      if (images.length === 0) {
+        throw new Error('Image generation did not return an image. The model may have blocked the request or returned an unsupported response.');
+      }
+
+      const output = imageOutputToMarkdown(await materializeGeneratedImages(images), text);
+      logAiExchange({ ...aiLogPayload, output });
+      return singleSseResponse(p, { text: output, candidates: [{ content: { parts: [{ text: output }] } }] }, integrationEvents);
+    }
+
+    if (isOpenAIImageModel(selectedModel) && p !== 'gemini' && p !== 'vertexai' && p !== 'anthropic') {
+      const prompt = getImageGenerationPrompt(messages);
+      let body = getOpenAIImageRequestBody(selectedModel, prompt);
+      let res = await fetch(getOpenAIImagesUrl(cleanBase), {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          Authorization: `Bearer ${conn.apiKey}`
+        },
+        body: JSON.stringify(body)
+      });
+      if (!res.ok && body.response_format) {
+        const firstError = await res.text();
+        if (/response_format|unsupported|unknown|unrecognized/i.test(firstError)) {
+          body = { ...body };
+          delete body.response_format;
+          res = await fetch(getOpenAIImagesUrl(cleanBase), {
+            method: 'POST',
+            headers: {
+              'content-type': 'application/json',
+              Authorization: `Bearer ${conn.apiKey}`
+            },
+            body: JSON.stringify(body)
+          });
+        } else {
+          throw new Error(`API Error: ${res.status} ${firstError}`);
+        }
+      }
+      if (!res.ok) throw new Error(await getRouteResponseError(res));
+      const data = await res.json();
+      const images = await inlineRemoteGeneratedImages(getOpenAIGeneratedImages(data));
+      if (images.length === 0) {
+        throw new Error('Image generation did not return an image. The model may have blocked the request or returned an unsupported response.');
+      }
+      const output = imageOutputToMarkdown(await materializeGeneratedImages(images));
+      logAiExchange({ ...aiLogPayload, output });
+      return singleSseResponse(p, { choices: [{ delta: { content: output } }] }, integrationEvents);
+    }
 
     let url = '';
     const headers: Record<string, string> = { 'content-type': 'application/json' };

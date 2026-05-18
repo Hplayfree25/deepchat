@@ -68,9 +68,9 @@ export const TOOL_CATALOG: ToolCatalogItem[] = [
 ];
 
 export const defaultToolSettings: ToolSettings = {
-  searchEnabled: false,
-  codeExecutionEnabled: false,
-  urlContextEnabled: false,
+  searchEnabled: true,
+  codeExecutionEnabled: true,
+  urlContextEnabled: true,
   installed: []
 };
 
@@ -117,9 +117,9 @@ const normalizeSettings = (settings: unknown): ToolSettings => {
   const selectedTool = uniqueInstalled.find(item => item.enabled) || uniqueInstalled[0];
   const selectedInstalled = selectedTool ? [selectedTool] : [];
   return {
-    searchEnabled: typeof settings.searchEnabled === 'boolean' ? settings.searchEnabled : selectedInstalled.length > 0,
-    codeExecutionEnabled: typeof settings.codeExecutionEnabled === 'boolean' ? settings.codeExecutionEnabled : false,
-    urlContextEnabled: typeof settings.urlContextEnabled === 'boolean' ? settings.urlContextEnabled : false,
+    searchEnabled: typeof settings.searchEnabled === 'boolean' ? settings.searchEnabled : true,
+    codeExecutionEnabled: typeof settings.codeExecutionEnabled === 'boolean' ? settings.codeExecutionEnabled : true,
+    urlContextEnabled: typeof settings.urlContextEnabled === 'boolean' ? settings.urlContextEnabled : true,
     installed: selectedInstalled
   };
 };
@@ -212,9 +212,11 @@ const getDuckDuckGoRuntimeItem = (): ToolRuntimeItem => ({
 });
 
 const getEnabledSearchRuntimeItems = (settings: ToolSettings, requested: boolean): ToolRuntimeItem[] => {
+  if (!settings.searchEnabled) return [];
   if (!requested) return [];
   const installed = getInstalledSearchRuntimeItems(settings);
-  if (installed.length > 0) return installed;
+  const configuredInstalled = installed.filter(item => item.configured);
+  if (configuredInstalled.length > 0) return configuredInstalled;
   return [getDuckDuckGoRuntimeItem()];
 };
 

@@ -33,6 +33,7 @@ export interface InstalledMCPServer {
 
 export interface MCPSettings {
   installed: InstalledMCPServer[];
+  catalogVersion: number;
 }
 
 export interface MCPRuntimeServer {
@@ -154,8 +155,18 @@ export const MCP_CATALOG: MCPCatalogServer[] = [
   mcp('huggingface', 'Hugging Face', 'Search models, datasets, spaces, and inference endpoints.', 'AI', 'online', 'huggingface-mcp-server', ['HUGGINGFACE_API_TOKEN'], ['models', 'datasets', 'online'])
 ];
 
+const getDefaultInstalledMCPServers = (): InstalledMCPServer[] => MCP_CATALOG.map(server => ({
+  ...server,
+  id: `${server.id}-default`,
+  serverId: server.id,
+  config: {},
+  enabled: true,
+  installedAt: '1970-01-01T00:00:00.000Z'
+}));
+
 export const defaultMCPSettings: MCPSettings = {
-  installed: []
+  installed: getDefaultInstalledMCPServers(),
+  catalogVersion: 1
 };
 
 const SETTINGS_KEY = 'deepchat-mcp-settings';
@@ -201,8 +212,13 @@ const normalizeSettings = (settings: unknown): MCPSettings => {
   const installed = Array.isArray(settings.installed)
     ? settings.installed.map(normalizeInstalledServer).filter((server): server is InstalledMCPServer => Boolean(server))
     : [];
-  const uniqueInstalled = installed.filter((server, index, list) => list.findIndex(item => item.serverId === server.serverId) === index);
-  return { installed: uniqueInstalled };
+  const shouldMigrateCatalog = settings.catalogVersion !== 1;
+  const mergedInstalled = shouldMigrateCatalog ? [
+    ...installed,
+    ...getDefaultInstalledMCPServers().filter(server => !installed.some(current => current.serverId === server.serverId))
+  ] : installed;
+  const uniqueInstalled = mergedInstalled.filter((server, index, list) => list.findIndex(item => item.serverId === server.serverId) === index);
+  return { installed: uniqueInstalled, catalogVersion: 1 };
 };
 
 export const loadMCPSettings = () => {
@@ -234,17 +250,18 @@ export const installMCPServer = (serverId: string) => {
     enabled: true,
     installedAt: new Date().toISOString()
   };
-  return saveMCPSettings({ installed: [...current.installed, nextServer] });
+  return saveMCPSettings({ ...current, installed: [...current.installed, nextServer] });
 };
 
 export const uninstallMCPServer = (installedId: string) => {
   const current = loadMCPSettings();
-  return saveMCPSettings({ installed: current.installed.filter(server => server.id !== installedId) });
+  return saveMCPSettings({ ...current, installed: current.installed.filter(server => server.id !== installedId) });
 };
 
 export const toggleMCPServer = (installedId: string, enabled: boolean) => {
   const current = loadMCPSettings();
   return saveMCPSettings({
+    ...current,
     installed: current.installed.map(server => server.id === installedId ? { ...server, enabled } : server)
   });
 };
@@ -252,6 +269,7 @@ export const toggleMCPServer = (installedId: string, enabled: boolean) => {
 export const updateMCPServerConfig = (installedId: string, config: Record<string, string>) => {
   const current = loadMCPSettings();
   return saveMCPSettings({
+    ...current,
     installed: current.installed.map(server => server.id === installedId ? { ...server, config: normalizeConfig(config, server.env) } : server)
   });
 };

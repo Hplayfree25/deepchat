@@ -5,6 +5,7 @@ import { getEnabledMCPRuntimeServers } from '@/lib/mcp-settings';
 import { publishDeepChatNotification } from '@/lib/notification-settings';
 import { getEnabledToolRuntimeItems, loadToolSettings, shouldUseSmartSearch } from '@/lib/tool-settings';
 import { parseAgentClarification, parseGeneratedClarificationAnswerContent, type AgentClarification } from '@/lib/agent-clarification';
+import { getGenerationMode, stripGeneratedImageMarkdown, type GenerationMode } from '@/lib/image-generation';
 
 interface SearchSource {
   title: string;
@@ -72,6 +73,7 @@ interface ChatMessageVersion {
   searchSources?: SearchSource[];
   clarification?: AgentClarification;
   versionIndex?: number;
+  generationMode?: GenerationMode;
   [key: string]: unknown;
 }
 
@@ -95,6 +97,7 @@ interface StoredChatMessage extends MemoryAssistantMessage {
   isStreaming?: boolean;
   isError?: boolean;
   isStopped?: boolean;
+  generationMode?: GenerationMode;
 }
 
 interface SelectedModelConnection {
@@ -116,6 +119,7 @@ export interface ChatGenerationSnapshot {
   isError?: boolean;
   isStopped?: boolean;
   reasoningDuration?: number;
+  generationMode?: GenerationMode;
   status: 'running' | 'completed' | 'stopped' | 'error';
 }
 
@@ -136,6 +140,7 @@ interface ChatGenerationTask {
   status: ChatGenerationSnapshot['status'];
   stopRequested: boolean;
   connection: SelectedModelConnection | null;
+  generationMode?: GenerationMode;
   promise?: Promise<void>;
   lastEmittedAt: number;
   pendingEmit: ReturnType<typeof setTimeout> | null;
@@ -191,6 +196,7 @@ const getSnapshot = (task: ChatGenerationTask): ChatGenerationSnapshot => ({
   isError: task.status === 'error',
   isStopped: task.status === 'stopped',
   reasoningDuration: getDuration(task),
+  generationMode: task.generationMode,
   status: task.status
 });
 
@@ -229,7 +235,7 @@ const emitSnapshot = (task: ChatGenerationTask, immediate = false) => {
 };
 
 const formatMessages = (apiMessages: ChatApiMessage[]) => {
-  const sanitizeContent = (content?: string) => parseAgentClarification(content || '').visibleContent
+  const sanitizeContent = (content?: string) => stripGeneratedImageMarkdown(parseAgentClarification(content || '').visibleContent)
     .replace(/```deepchat-analysis[\s\S]*?```/g, '[analysis chart omitted]')
     .replace(/```deepchat-analysis-actions[\s\S]*?```/g, '[analysis action omitted]')
     .replace(/`deepchat-analysis-actions:[^`]+`/g, '[analysis action omitted]');
@@ -269,7 +275,7 @@ const getSelectedConnection = (): SelectedModelConnection | null => {
   return selectedModelStr ? JSON.parse(selectedModelStr) : null;
 };
 
-const updateMessageVersion = (message: StoredChatMessage, content: string, reasoning: string, reasoningDuration?: number, mcpNotice?: string, mcpUsage: MCPUsageItem[] = [], mcpContentOffset?: number, searchSources: SearchSource[] = [], clarification?: AgentClarification) => {
+const updateMessageVersion = (message: StoredChatMessage, content: string, reasoning: string, reasoningDuration?: number, mcpNotice?: string, mcpUsage: MCPUsageItem[] = [], mcpContentOffset?: number, searchSources: SearchSource[] = [], clarification?: AgentClarification, generationMode?: GenerationMode) => {
   const updated = {
     ...message,
     content,
@@ -279,7 +285,8 @@ const updateMessageVersion = (message: StoredChatMessage, content: string, reaso
     mcpUsage,
     mcpContentOffset,
     searchSources,
-    clarification
+    clarification,
+    generationMode
   };
 
   if (updated.versions && updated.currentVersionIndex !== undefined) {
@@ -293,7 +300,8 @@ const updateMessageVersion = (message: StoredChatMessage, content: string, reaso
       mcpUsage,
       mcpContentOffset,
       searchSources,
-      clarification
+      clarification,
+      generationMode
     };
   }
 
@@ -314,7 +322,7 @@ const saveFinalMessage = async (task: ChatGenerationTask, options: { isError?: b
   const clarification = task.clarification || parsedContent.clarification;
   const content = options.errorMessage || parsedContent.visibleContent || (options.isStopped ? 'Generation stopped.' : '');
   const finalMessage = {
-    ...updateMessageVersion(currentMsg, content, task.fullReasoning, getDuration(task), task.mcpNotice, task.mcpUsage, task.mcpContentOffset, task.searchSources, clarification),
+    ...updateMessageVersion(currentMsg, content, task.fullReasoning, getDuration(task), task.mcpNotice, task.mcpUsage, task.mcpContentOffset, task.searchSources, clarification, task.generationMode),
     isStreaming: false,
     isError: options.isError === true,
     isStopped: options.isStopped === true
@@ -351,7 +359,8 @@ const generateChatTitle = async (chatId: string, prompt: string, connection: Sel
 
 const saveMemoriesFromResponse = async (chatId: string, apiMessages: MemoryApiMessage[], assistantMessage: MemoryAssistantMessage, connection: SelectedModelConnection | null) => {
   const lastUserMessage = [...apiMessages].reverse().find(m => m.role === 'user');
-  if (!lastUserMessage?.content || !assistantMessage?.content) return;
+  const assistantMemoryContent = stripGeneratedImageMarkdown(assistantMessage.content);
+  if (!lastUserMessage?.content || !assistantMemoryContent || !assistantMemoryContent.trim() || assistantMemoryContent === '[generated image omitted]') return;
 
   try {
     const res = await fetch('/api/memory/extract', {
@@ -361,7 +370,7 @@ const saveMemoriesFromResponse = async (chatId: string, apiMessages: MemoryApiMe
         chatId,
         userMessage: lastUserMessage.content,
         userMessageId: lastUserMessage.id,
-        assistantMessage: assistantMessage.content,
+        assistantMessage: assistantMemoryContent,
         connectionId: connection?.connectionId,
         modelId: connection?.id
       })
@@ -511,6 +520,7 @@ const readChatResponseText = async (res: Response) => {
 
 const DATA_ANALYSIS_EXTENSIONS = new Set(['csv', 'json', 'jsonl', 'xlsx', 'xls']);
 const DATA_ANALYSIS_PROMPT_PATTERN = /(analy[sz]e\s+(this\s+)?(data|dataset|file|csv|spreadsheet)|data\s+analysis|csv|excel|spreadsheet|statistics|mean|median|standard deviation|correlation|regression|cluster|clustering|pivot|grouping|aggregate|outlier|analisis\s+data|statistik|korelasi|regresi|pivot|agregasi|rata-rata|median|visuali[sz](e|ation)\s+(this\s+)?(data|dataset|csv|spreadsheet|prices?|stocks?|market|sales|revenue|harga|saham|tren|trend)|(?:chart|plot|grafik)\s+(?:of|for|data|dataset|prices?|stocks?|market|sales|revenue|harga|saham|tren|trend)|\b(?:buat(?:kan)?|bikin(?:kan)?|generate|create)\b[\s\S]{0,120}\b(?:chart|plot|grafik|visualisasi)\b)/i;
+const CODE_EXECUTION_PROMPT_PATTERN = /(\b(run|execute|test|evaluate)\b[\s\S]{0,80}\b(code|script|python|snippet)\b|\b(code|script|python|snippet)\b[\s\S]{0,80}\b(run|execute|test|evaluate)\b|\b(calculate|compute|simulate|simulation|monte carlo|numerically solve|optimi[sz]e|benchmark)\b|\b(hitung|kalkulasi|simulasi|jalankan|eksekusi|uji)\b[\s\S]{0,80}\b(kode|skrip|python|angka|perhitungan|rumus)\b)/i;
 const CURRENT_MARKET_ANALYSIS_PATTERN = /((stock|stocks|ticker|market|crypto|coin|forex|exchange rate|price|prices|saham|bursa|emiten|kripto|koin|kurs|harga).*(visuali[sz]e|visualization|chart|plot|grafik|forecast|predict|prediction|projection|trend|outlook|analy[sz]e|analysis|prediksi|proyeksi|tren|analisis|kedepan|ke depan|mendatang))|((visuali[sz]e|visualization|chart|plot|grafik|forecast|predict|prediction|projection|trend|outlook|analy[sz]e|analysis|prediksi|proyeksi|tren|analisis).*(stock|stocks|ticker|market|crypto|coin|forex|exchange rate|price|prices|saham|bursa|emiten|kripto|koin|kurs|harga))/i;
 const SPREADSHEET_REQUEST_PATTERN = /\b(excel|spreadsheet|workbook|xlsx|sheet|worksheet|table|tabel|lembar kerja|rumus|formula|cashflow|cash flow|arus kas)\b/i;
 
@@ -538,7 +548,7 @@ const shouldUseCodeAnalysis = (message: ChatApiMessage | undefined) => {
   if (!loadToolSettings().codeExecutionEnabled) return false;
   const files = normalizeAttachedDataFiles(message.attachedFiles);
   const content = message.content || '';
-  return files.length > 0 || DATA_ANALYSIS_PROMPT_PATTERN.test(content) || CURRENT_MARKET_ANALYSIS_PATTERN.test(content);
+  return files.length > 0 || DATA_ANALYSIS_PROMPT_PATTERN.test(content) || CODE_EXECUTION_PROMPT_PATTERN.test(content) || CURRENT_MARKET_ANALYSIS_PATTERN.test(content);
 };
 
 const isSpreadsheetAnalysisRequest = (message: ChatApiMessage | undefined) => Boolean(message && SPREADSHEET_REQUEST_PATTERN.test(message.content || ''));
@@ -592,13 +602,13 @@ const getToolDecisionInstruction = (codeAnalysisEnabled: boolean, manualSearch: 
   'Return only compact JSON with this exact shape: {"useSearch":boolean,"useCodeAnalysis":boolean,"reason":"short reason"}.',
   'Available tools:',
   'Search: finds fresh web facts and returns source-aware context. Use it for current/latest/recent information, prices, availability, news, public people or organizations, product specs, releases, citations, and facts likely to change.',
-  codeAnalysisEnabled ? 'Code Analysis: creates real Python-backed results, charts, downloadable Excel workbooks, spreadsheet previews, formulas, formatted tables, projections, calculations, statistics, aggregations, and dataset analysis. If the user asks to make an Excel/XLSX/workbook/table with formulas or styling, use Code Analysis.' : 'Code Analysis is disabled, so useCodeAnalysis must be false.',
+  codeAnalysisEnabled ? 'Code Execution: creates real Python-backed results, charts, downloadable Excel workbooks, spreadsheet previews, formulas, formatted tables, projections, calculations, simulations, benchmarks, statistics, aggregations, and dataset analysis. If the user asks to run code, execute Python, calculate, simulate, or make an Excel/XLSX/workbook/table with formulas or styling, use Code Execution.' : 'Code Execution is disabled, so useCodeAnalysis must be false.',
   manualSearch ? 'The user manually enabled Search, so useSearch must be true.' : 'If the request can be answered from conversation context or stable general knowledge, do not use Search.',
   'Prefer no tool for greetings, translation, writing, brainstorming, coding help, explanations, or local reasoning unless the user explicitly asks for current external facts.',
   'Use Search only for web fact-finding tasks such as "find the latest...", "carikan data terbaru...", company profiles, news, product information, or source-backed summaries when no numeric computation or chart is requested.',
-  'Use Code Analysis for attached files, explicit computation/charting over data that is already available in the conversation, or spreadsheet/table generation such as Excel, XLSX, workbook, formulas, pivot tables, and formatted data tables.',
-  'Use both Search and Code Analysis when the user asks for analysis, visualization, charting, forecasting, or prediction based on current web facts, such as stock prices, crypto prices, market trends, exchange rates, commodity prices, or recent public datasets.',
-  'Examples: "visualisasi harga saham B ke depannya" => both true; "carikan berita terbaru saham B" => Search true, Code Analysis false; "analisis CSV ini dan buat grafik" => Search false, Code Analysis true; "buatkan tabel Excel dengan rumus" => Search false, Code Analysis true; "siapa CEO terbaru X?" => Search true, Code Analysis false.',
+  'Use Code Execution for attached files, explicit computation/charting over data that is already available in the conversation, runnable code requests, calculations, simulations, or spreadsheet/table generation such as Excel, XLSX, workbook, formulas, pivot tables, and formatted data tables.',
+  'Use both Search and Code Execution when the user asks for analysis, visualization, charting, forecasting, or prediction based on current web facts, such as stock prices, crypto prices, market trends, exchange rates, commodity prices, or recent public datasets.',
+  'Examples: "visualisasi harga saham B ke depannya" => both true; "carikan berita terbaru saham B" => Search true, Code Execution false; "analisis CSV ini dan buat grafik" => Search false, Code Execution true; "buatkan tabel Excel dengan rumus" => Search false, Code Execution true; "jalankan kode Python ini" => Search false, Code Execution true; "siapa CEO terbaru X?" => Search true, Code Execution false.',
   'Never ask the user which tool to use.'
 ].join('\n');
 
@@ -1377,6 +1387,7 @@ const runTask = async (task: ChatGenerationTask) => {
 export const startChatGeneration = (chatId: string, apiMessages: ChatApiMessage[], assistantMsgId: string) => {
   const existing = tasks.get(chatId);
   if (existing) return getSnapshot(existing);
+  const selectedConnection = getSelectedConnection();
 
   const task: ChatGenerationTask = {
     chatId,
@@ -1393,7 +1404,8 @@ export const startChatGeneration = (chatId: string, apiMessages: ChatApiMessage[
     reasoningEndTime: Date.now(),
     status: 'running',
     stopRequested: false,
-    connection: getSelectedConnection(),
+    connection: selectedConnection,
+    generationMode: getGenerationMode(selectedConnection?.id),
     lastEmittedAt: 0,
     pendingEmit: null
   };

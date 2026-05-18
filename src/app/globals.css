@@ -416,6 +416,21 @@ canvas {
   white-space: normal;
 }
 
+.deepchat-image-loader {
+  background:
+    radial-gradient(circle at 22% 18%, rgb(99 102 241 / 0.09), transparent 34%),
+    radial-gradient(circle at 78% 76%, rgb(14 165 233 / 0.08), transparent 36%),
+    linear-gradient(135deg, rgb(255 255 255 / 0.98), rgb(248 250 252 / 0.94));
+}
+
+html.dark .deepchat-image-loader,
+html[data-appearance="dark"] .deepchat-image-loader {
+  background:
+    radial-gradient(circle at 22% 18%, rgb(129 140 248 / 0.14), transparent 34%),
+    radial-gradient(circle at 78% 76%, rgb(56 189 248 / 0.1), transparent 36%),
+    linear-gradient(135deg, rgb(15 23 42 / 0.98), rgb(30 41 59 / 0.92));
+}
+
 .custom-scrollbar::-webkit-scrollbar {
   width: 6px;
   height: 6px;

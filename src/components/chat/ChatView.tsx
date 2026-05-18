@@ -13,6 +13,8 @@ import {
   subscribeChatGeneration
 } from '@/lib/chat-generation';
 import { formatClarificationAnswer, isGeneratedClarificationAnswerContent, parseAgentClarification, type AgentClarification, type AgentClarificationAnswer, type AgentClarificationOption } from '@/lib/agent-clarification';
+import { IMAGE_GENERATION_STATUS_TEXTS, getGenerationMode, type GenerationMode } from '@/lib/image-generation';
+import { AnimatePresence, motion } from 'framer-motion';
 import {
   Copy, ThumbsUp, ThumbsDown, RefreshCcw,
   Bot, Check, ChevronDown, ChevronRight, BrainCircuit, ChevronLeft, Edit3, X, Cpu, Code2
@@ -42,6 +44,7 @@ type MessageVersion = {
   clarification?: AgentClarification;
   clarificationAnswer?: AgentClarificationAnswer;
   versionIndex?: number;
+  generationMode?: GenerationMode;
   [key: string]: unknown;
 };
 
@@ -66,6 +69,7 @@ type ChatMessage = {
   isStreaming?: boolean;
   isError?: boolean;
   isStopped?: boolean;
+  generationMode?: GenerationMode;
   memoriesSaved?: boolean;
   memoriesSavedCount?: number;
   memoryProvider?: unknown;
@@ -113,6 +117,7 @@ const normalizeMessageForDisplay = (message: ChatMessage) => {
     searchSources: currentVersion?.searchSources ?? message.searchSources,
     clarification: currentVersion?.clarification ?? message.clarification ?? parsedVersion.clarification,
     clarificationAnswer: currentVersion?.clarificationAnswer ?? message.clarificationAnswer,
+    generationMode: currentVersion?.generationMode ?? message.generationMode,
     isStreaming: false
   };
 };
@@ -132,6 +137,7 @@ const mergeGenerationSnapshot = (items: ChatMessage[], snapshot: ChatGenerationS
     searchSources: snapshot.searchSources,
     clarification: snapshot.clarification || parsedSnapshot.clarification,
     clarificationAnswer: m.clarificationAnswer,
+    generationMode: snapshot.generationMode ?? m.generationMode,
     isStreaming: snapshot.isStreaming,
     isError: snapshot.isError === true,
     isStopped: snapshot.isStopped === true
@@ -149,7 +155,8 @@ const mergeGenerationSnapshot = (items: ChatMessage[], snapshot: ChatGenerationS
       mcpContentOffset: snapshot.mcpContentOffset,
       searchSources: snapshot.searchSources,
       clarification: snapshot.clarification || parsedSnapshot.clarification,
-      clarificationAnswer: updated.versions[updated.currentVersionIndex]?.clarificationAnswer
+      clarificationAnswer: updated.versions[updated.currentVersionIndex]?.clarificationAnswer,
+      generationMode: snapshot.generationMode ?? updated.versions[updated.currentVersionIndex]?.generationMode
     };
   }
 
@@ -159,6 +166,16 @@ const mergeGenerationSnapshot = (items: ChatMessage[], snapshot: ChatGenerationS
 const mergeActiveGeneration = (chatId: string, items: ChatMessage[]) => {
   const snapshot = getChatGenerationState(chatId);
   return snapshot ? mergeGenerationSnapshot(items, snapshot) : items;
+};
+
+const getSelectedGenerationMode = () => {
+  if (typeof window === 'undefined') return undefined;
+  try {
+    const selected = JSON.parse(localStorage.getItem('selectedModelObj') || '{}') as { id?: string; name?: string };
+    return getGenerationMode(selected.id || selected.name);
+  } catch {
+    return getGenerationMode(localStorage.getItem('selectedModel'));
+  }
 };
 
 export default function ChatView({ chatId }: { chatId: string }) {
@@ -353,6 +370,7 @@ export default function ChatView({ chatId }: { chatId: string }) {
     };
 
     const assistantMsgId = (Date.now() + 1).toString();
+    const generationMode = getSelectedGenerationMode();
     const assistantMessage = {
       id: assistantMsgId,
       role: 'assistant',
@@ -364,6 +382,7 @@ export default function ChatView({ chatId }: { chatId: string }) {
       clarification: undefined,
       createdAt: new Date().toISOString(),
       isStreaming: true,
+      generationMode,
       chatIndex: messagesRef.current.length + 1
     };
 
@@ -428,6 +447,7 @@ export default function ChatView({ chatId }: { chatId: string }) {
       reasoningDuration: undefined,
       isStreaming: true,
       isError: false,
+      generationMode: getSelectedGenerationMode(),
       memoriesSaved: false,
       memoriesSavedCount: undefined,
       memoryProvider: undefined,
@@ -485,6 +505,7 @@ export default function ChatView({ chatId }: { chatId: string }) {
         isStreaming: true,
         isError: false,
         isStopped: false,
+        generationMode: getSelectedGenerationMode(),
         memoriesSaved: false,
         memoriesSavedCount: undefined,
         memoryProvider: undefined,
@@ -502,6 +523,7 @@ export default function ChatView({ chatId }: { chatId: string }) {
         clarificationAnswer: undefined,
         createdAt: new Date().toISOString(),
         isStreaming: true,
+        generationMode: getSelectedGenerationMode(),
         chatIndex: targetIndex + 1
       };
     const nextMessages = [
@@ -545,6 +567,7 @@ export default function ChatView({ chatId }: { chatId: string }) {
       searchSources: version.searchSources,
       clarification: version.clarification,
       clarificationAnswer: version.clarificationAnswer,
+      generationMode: version.generationMode,
       isError: false
     };
 
@@ -1008,6 +1031,78 @@ function MemorySavedBadgeContent() {
   );
 }
 
+function ImageGenerationLoader() {
+  const [textIndex, setTextIndex] = useState(0);
+  const waveDots = [
+    [72, 20], [78, 24], [84, 28],
+    [64, 28], [70, 32], [76, 36], [82, 40],
+    [56, 36], [62, 40], [68, 44], [74, 48],
+    [48, 44], [54, 48], [60, 52],
+    [40, 52], [46, 56]
+  ];
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      setTextIndex(index => (index + 1) % IMAGE_GENERATION_STATUS_TEXTS.length);
+    }, 3200);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  return (
+    <div className="deepchat-image-loader relative aspect-square w-[min(74vw,320px)] overflow-hidden rounded-[2rem] border border-slate-200 bg-white p-5 shadow-lg shadow-slate-200/55">
+      <svg className="pointer-events-none absolute inset-0 h-full w-full" viewBox="0 0 100 100" aria-hidden="true">
+        {waveDots.map(([cx, cy], index) => {
+          const diagonalDelay = index * 0.11;
+          return (
+            <g key={index}>
+              <motion.circle
+                cx={cx}
+                cy={cy}
+                fill="rgb(99 102 241)"
+                animate={{
+                  cx: [cx + 12, cx, cx - 18],
+                  cy: [cy + 12, cy, cy - 18],
+                  r: [0.9, 2.25, 0.8],
+                  opacity: [0, 0.16, 0]
+                }}
+                transition={{ duration: 5.6, ease: 'easeInOut', repeat: Infinity, delay: diagonalDelay }}
+              />
+              <motion.circle
+                cx={cx}
+                cy={cy}
+                fill="rgb(99 102 241)"
+                animate={{
+                  cx: [cx + 12, cx, cx - 18],
+                  cy: [cy + 12, cy, cy - 18],
+                  r: [0.35, 0.82, 0.32],
+                  opacity: [0.12, 0.62, 0.1]
+                }}
+                transition={{ duration: 5.6, ease: 'easeInOut', repeat: Infinity, delay: diagonalDelay }}
+              />
+            </g>
+          );
+        })}
+      </svg>
+      <div className="relative z-10 flex h-full flex-col items-start justify-start">
+        <div className="relative h-8 w-full max-w-[230px]">
+          <AnimatePresence mode="wait">
+            <motion.p
+              key={textIndex}
+              initial={{ y: 12, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              exit={{ y: -12, opacity: 0 }}
+              transition={{ duration: 0.68, ease: [0.22, 1, 0.36, 1] }}
+              className="absolute left-0 top-0 text-left text-sm font-bold leading-snug text-slate-500"
+            >
+              {IMAGE_GENERATION_STATUS_TEXTS[textIndex]}
+            </motion.p>
+          </AnimatePresence>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 const MessageBubble = React.memo(function MessageBubble({ message, onRegenerate, onSwitchVersion, canEditUserMessage = false, onEditUserMessage }: MessageBubbleProps) {
   const isUser = message.role === 'user';
   const [copied, setCopied] = useState(false);
@@ -1141,6 +1236,8 @@ const MessageBubble = React.memo(function MessageBubble({ message, onRegenerate,
               <MarkdownRenderer content={postMCPContent || standardContent || ''} isStreaming={message.isStreaming} searchSources={message.searchSources} />
             )}
           </div>
+        ) : message.isStreaming && !message.reasoning && !hasActiveCodeExecution && message.generationMode === 'image' ? (
+          <ImageGenerationLoader />
         ) : message.isStreaming && !message.reasoning && !hasActiveCodeExecution && (
           <div className="flex min-h-8 w-fit items-center px-1 py-2">
             <div className="flex space-x-1.5">
