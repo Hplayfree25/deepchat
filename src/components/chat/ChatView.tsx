@@ -186,11 +186,14 @@ export default function ChatView({ chatId }: { chatId: string }) {
   const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>([]);
   const [webSearchEnabled, setWebSearchEnabled] = useState(false);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const composerContentRef = useRef<HTMLDivElement>(null);
   const dotsContainerRef = useRef<HTMLDivElement>(null);
   const initialMsgProcessed = useRef(false);
   const messagesRef = useRef(messages);
   const sendMessageRef = useRef<((text: string, overrideFiles?: AttachedFile[], overrideWebSearch?: boolean) => void | Promise<void>) | null>(null);
   const [activeUserMsgId, setActiveUserMsgId] = useState<string | null>(null);
+  const [activeMobileActionMsgId, setActiveMobileActionMsgId] = useState<string | null>(null);
+  const [composerReserve, setComposerReserve] = useState(160);
   const observerRef = useRef<IntersectionObserver | null>(null);
 
   const handleFilesUpload = async (files: File[]) => {
@@ -236,6 +239,33 @@ export default function ChatView({ chatId }: { chatId: string }) {
   useEffect(() => {
     messagesRef.current = messages;
   }, [messages]);
+
+  useEffect(() => {
+    const measureComposerReserve = () => {
+      const scrollNode = scrollContainerRef.current;
+      const composerNode = composerContentRef.current;
+      if (!scrollNode || !composerNode) return;
+      const scrollRect = scrollNode.getBoundingClientRect();
+      const composerRect = composerNode.getBoundingClientRect();
+      const isMobile = window.innerWidth < 640;
+      const nextReserve = Math.ceil(Math.max(isMobile ? 92 : 112, scrollRect.bottom - composerRect.top + (isMobile ? 8 : 12)));
+      setComposerReserve(current => Math.abs(current - nextReserve) > 1 ? nextReserve : current);
+    };
+
+    measureComposerReserve();
+
+    const resizeObserver = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(measureComposerReserve) : null;
+    if (resizeObserver) {
+      if (composerContentRef.current) resizeObserver.observe(composerContentRef.current);
+      if (scrollContainerRef.current) resizeObserver.observe(scrollContainerRef.current);
+    }
+
+    window.addEventListener('resize', measureComposerReserve);
+    return () => {
+      resizeObserver?.disconnect();
+      window.removeEventListener('resize', measureComposerReserve);
+    };
+  }, [attachedFiles.length, input, isLoading, messages]);
 
   useEffect(() => {
     let mounted = true;
@@ -658,7 +688,7 @@ export default function ChatView({ chatId }: { chatId: string }) {
         ref={scrollContainerRef}
         className={`flex-1 overflow-y-auto px-3 py-4 sm:p-6 ${showCustomScrollbar ? '[&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]' : 'custom-scrollbar'}`}
       >
-        <div className="mx-auto flex w-full max-w-4xl flex-col gap-5 pb-44 sm:gap-6 sm:pb-52">
+        <div className="mx-auto flex w-full max-w-4xl flex-col gap-4 sm:gap-6" style={{ paddingBottom: composerReserve }}>
           {messages.length === 0 && !isLoading && (
             <div className="flex flex-col items-center justify-center h-full mt-20 text-center opacity-50">
               <Bot className="w-16 h-16 mb-4 text-slate-400" />
@@ -675,6 +705,8 @@ export default function ChatView({ chatId }: { chatId: string }) {
               onSwitchVersion={(delta) => switchVersion(msg.id, delta)}
               canEditUserMessage={msg.role === 'user' && msg.id === latestUserMessageId}
               onEditUserMessage={(content) => handleEditUserMessage(msg.id, content)}
+              isMobileActionsOpen={activeMobileActionMsgId === msg.id}
+              onActivateMobileActions={() => setActiveMobileActionMsgId(msg.id)}
             />
           ))}
 
@@ -708,8 +740,8 @@ export default function ChatView({ chatId }: { chatId: string }) {
         </div>
       )}
 
-      <div className="deepchat-composer-dock pointer-events-none absolute bottom-0 left-0 z-20 flex w-full flex-col items-center px-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] pt-12 sm:p-6">
-        <div className="pointer-events-auto w-full max-w-3xl flex flex-col gap-2">
+      <div className="deepchat-composer-dock pointer-events-none absolute bottom-0 left-0 z-20 flex w-full flex-col items-center px-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] pt-6 sm:p-6">
+        <div ref={composerContentRef} className="pointer-events-auto flex w-full max-w-3xl flex-col gap-2">
           {activeClarificationMessage?.clarification ? (
             <ClarificationDock
               clarification={activeClarificationMessage.clarification}
@@ -729,6 +761,7 @@ export default function ChatView({ chatId }: { chatId: string }) {
               onStop={handleStopGeneration}
               onToggleWebSearch={setWebSearchEnabled}
               onFilesUpload={handleFilesUpload}
+              onAttachRecentFile={(file) => setAttachedFiles(prev => prev.some(item => item.name === file.name && item.ext === file.ext) ? prev : [...prev, file])}
               onRemoveFile={(index) => setAttachedFiles(prev => prev.filter((_, itemIndex) => itemIndex !== index))}
             />
           )}
@@ -1000,6 +1033,8 @@ type MessageBubbleProps = {
   onSwitchVersion?: (delta: number) => void;
   canEditUserMessage?: boolean;
   onEditUserMessage?: (content: string) => Promise<boolean>;
+  isMobileActionsOpen?: boolean;
+  onActivateMobileActions?: () => void;
 };
 
 function MemorySavedBadge({ memoryKey }: { memoryKey: string }) {
@@ -1100,7 +1135,7 @@ function ImageGenerationLoader() {
   );
 }
 
-const MessageBubble = React.memo(function MessageBubble({ message, onRegenerate, onSwitchVersion, canEditUserMessage = false, onEditUserMessage }: MessageBubbleProps) {
+const MessageBubble = React.memo(function MessageBubble({ message, onRegenerate, onSwitchVersion, canEditUserMessage = false, onEditUserMessage, isMobileActionsOpen = false, onActivateMobileActions }: MessageBubbleProps) {
   const isUser = message.role === 'user';
   const [copied, setCopied] = useState(false);
   const [isEditingUserMessage, setIsEditingUserMessage] = useState(false);
@@ -1150,8 +1185,12 @@ const MessageBubble = React.memo(function MessageBubble({ message, onRegenerate,
   const standardContent = hasMCPUsage && mcpOffset !== undefined ? '' : message.content;
 
   return (
-    <div id={`msg-${message.id}`} className={`group/message flex w-full items-start ${isUser ? 'justify-end message-user' : 'justify-start'} animate-in fade-in slide-in-from-bottom-2`}>
-      <div className={`flex min-w-0 flex-col ${isUser ? 'max-w-[82%] items-end sm:max-w-[75%]' : 'w-full max-w-3xl items-start'}`}>
+    <div
+      id={`msg-${message.id}`}
+      onClick={onActivateMobileActions}
+      className={`group/message flex w-full items-start ${isUser ? 'justify-end message-user' : 'justify-start'} animate-in fade-in slide-in-from-bottom-2`}
+    >
+      <div className={`flex min-w-0 flex-col ${isUser ? 'max-w-[92%] items-end sm:max-w-[75%]' : 'w-full max-w-3xl items-start'}`}>
         {!isUser && message.reasoning && (
           <ReasoningSection content={message.reasoning} isStreaming={message.isStreaming && !message.content} duration={message.reasoningDuration} />
         )}
@@ -1188,10 +1227,10 @@ const MessageBubble = React.memo(function MessageBubble({ message, onRegenerate,
 
         {(standardContent || postMCPContent) ? (
           <div className={`max-w-full ${isUser
-            ? 'rounded-2xl rounded-tr-sm bg-indigo-600 px-4 py-3 text-white shadow-sm sm:rounded-3xl sm:px-5'
+            ? 'rounded-2xl rounded-tr-sm bg-indigo-600 px-4 py-2.5 text-white shadow-sm sm:rounded-3xl sm:px-5 sm:py-3'
             : message.isError
               ? 'px-1 py-1 text-red-600'
-              : 'px-1 py-1 text-slate-800'
+              : 'px-1 py-0 text-slate-800'
             }`}>
             {isUser && isEditingUserMessage ? (
               <div className="w-[min(72vw,520px)]">
@@ -1250,10 +1289,11 @@ const MessageBubble = React.memo(function MessageBubble({ message, onRegenerate,
         )}
 
         {isUser && !isEditingUserMessage && (
-          <div className="mt-2 flex items-center justify-end gap-1.5 opacity-0 transition-opacity duration-200 group-hover/message:opacity-100 group-focus-within/message:opacity-100">
+          <div className={`mt-0 flex h-7 max-w-full flex-wrap items-center justify-end gap-1 transition-opacity duration-200 sm:gap-1.5 sm:pointer-events-none sm:opacity-0 sm:group-hover/message:pointer-events-auto sm:group-hover/message:opacity-100 sm:group-focus-within/message:pointer-events-auto sm:group-focus-within/message:opacity-100 ${isMobileActionsOpen ? 'pointer-events-auto opacity-100' : 'pointer-events-none opacity-0'}`}>
             <button
               onClick={handleCopy}
               className="rounded-md p-1.5 text-slate-400 transition-colors hover:bg-indigo-50 hover:text-indigo-600"
+              aria-label={copied ? 'Copied' : 'Copy message'}
               title={copied ? 'Copied' : 'Copy'}
             >
               {copied ? <Check className="h-4 w-4 text-emerald-500" /> : <Copy className="h-4 w-4" />}
@@ -1262,6 +1302,7 @@ const MessageBubble = React.memo(function MessageBubble({ message, onRegenerate,
               <button
                 onClick={startUserEdit}
                 className="rounded-md p-1.5 text-slate-400 transition-colors hover:bg-indigo-50 hover:text-indigo-600"
+                aria-label="Edit message"
                 title="Edit"
               >
                 <Edit3 className="h-4 w-4" />
@@ -1271,13 +1312,14 @@ const MessageBubble = React.memo(function MessageBubble({ message, onRegenerate,
         )}
 
         {!isUser && !message.isStreaming && (
-          <div className="flex items-center gap-1.5 mt-2 ml-1 opacity-0 transition-opacity duration-200 group-hover/message:opacity-100 group-focus-within/message:opacity-100">
+          <div className={`mt-0 ml-1 flex h-7 max-w-full flex-wrap items-center gap-1 transition-opacity duration-200 sm:gap-1.5 sm:pointer-events-none sm:opacity-0 sm:group-hover/message:pointer-events-auto sm:group-hover/message:opacity-100 sm:group-focus-within/message:pointer-events-auto sm:group-focus-within/message:opacity-100 ${isMobileActionsOpen ? 'pointer-events-auto opacity-100' : 'pointer-events-none opacity-0'}`}>
             {hasVersions && (
               <div className="flex items-center gap-1 bg-slate-100/80 rounded-lg px-1.5 py-1 mr-2 border border-slate-200/60">
                 <button
                   onClick={() => onSwitchVersion && onSwitchVersion(-1)}
                   disabled={currentIdx === 0}
                   className="p-0.5 text-slate-400 hover:text-slate-700 disabled:opacity-30 transition-colors"
+                  aria-label="Previous response version"
                 >
                   <ChevronLeft className="w-4 h-4" />
                 </button>
@@ -1288,6 +1330,7 @@ const MessageBubble = React.memo(function MessageBubble({ message, onRegenerate,
                   onClick={() => onSwitchVersion && onSwitchVersion(1)}
                   disabled={currentIdx === totalVersions - 1}
                   className="p-0.5 text-slate-400 hover:text-slate-700 disabled:opacity-30 transition-colors"
+                  aria-label="Next response version"
                 >
                   <ChevronRight className="w-4 h-4" />
                 </button>
@@ -1297,18 +1340,21 @@ const MessageBubble = React.memo(function MessageBubble({ message, onRegenerate,
             <button
               onClick={handleCopy}
               className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-md transition-colors"
+              aria-label={copied ? 'Copied' : 'Copy response'}
               title="Copy"
             >
               {copied ? <Check className="w-4 h-4 text-emerald-500" /> : <Copy className="w-4 h-4" />}
             </button>
             <button
               className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-md transition-colors"
+              aria-label="Like response"
               title="Like"
             >
               <ThumbsUp className="w-4 h-4" />
             </button>
             <button
               className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-md transition-colors"
+              aria-label="Dislike response"
               title="Dislike"
             >
               <ThumbsDown className="w-4 h-4" />
@@ -1317,6 +1363,7 @@ const MessageBubble = React.memo(function MessageBubble({ message, onRegenerate,
               <button
                 onClick={onRegenerate}
                 className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-md transition-colors"
+                aria-label="Regenerate response"
                 title="Regenerate"
               >
                 <RefreshCcw className="w-4 h-4" />
@@ -1327,4 +1374,4 @@ const MessageBubble = React.memo(function MessageBubble({ message, onRegenerate,
       </div>
     </div>
   );
-}, (prev, next) => prev.message === next.message && prev.canEditUserMessage === next.canEditUserMessage && prev.onEditUserMessage === next.onEditUserMessage);
+}, (prev, next) => prev.message === next.message && prev.canEditUserMessage === next.canEditUserMessage && prev.onEditUserMessage === next.onEditUserMessage && prev.isMobileActionsOpen === next.isMobileActionsOpen);

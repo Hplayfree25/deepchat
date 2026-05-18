@@ -203,6 +203,17 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
   }, []);
 
   useEffect(() => {
+    const handleOpenFileLibrary = () => {
+      setRightPanelOpen(true);
+      setMobileRightPanelOpen(true);
+      localStorage.setItem('isRightPanelOpen', 'true');
+      toast('File library manager is ready in the Library panel.');
+    };
+    window.addEventListener('openFileLibrary', handleOpenFileLibrary);
+    return () => window.removeEventListener('openFileLibrary', handleOpenFileLibrary);
+  }, []);
+
+  useEffect(() => {
     applyGeneralSettings(loadGeneralSettings());
     const unsubscribe = subscribeGeneralSettings(applyGeneralSettings);
     const handleSystemAppearanceChange = () => applyGeneralSettings(loadGeneralSettings());

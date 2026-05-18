@@ -2,18 +2,20 @@
 
 import React, { useSyncExternalStore } from 'react';
 
-type ShortcutId = 'newChat' | 'search';
+type ShortcutId = 'newChat' | 'search' | 'uploadFile';
 type ShortcutPlatform = 'apple' | 'default';
 export type ShortcutLabels = Record<ShortcutId, string[]>;
 
 const shortcutKeys: Record<ShortcutPlatform, ShortcutLabels> = {
   apple: {
     newChat: ['Cmd', 'K'],
-    search: ['Cmd', 'F']
+    search: ['Cmd', 'F'],
+    uploadFile: ['Cmd', 'U']
   },
   default: {
     newChat: ['Ctrl', 'K'],
-    search: ['Ctrl', 'F']
+    search: ['Ctrl', 'F'],
+    uploadFile: ['Ctrl', 'U']
   }
 };
 
@@ -33,7 +35,8 @@ export function isShortcutEvent(event: KeyboardEvent, shortcut: ShortcutId) {
 
   if (!modifierPressed || event.altKey || event.shiftKey) return false;
   if (shortcut === 'newChat') return key === 'k';
-  return key === 'f';
+  if (shortcut === 'search') return key === 'f';
+  return key === 'u';
 }
 
 export function ShortcutCombo({ keys, tone = 'light' }: { keys: string[]; tone?: 'light' | 'dark' }) {

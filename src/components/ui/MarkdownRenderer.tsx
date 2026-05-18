@@ -75,7 +75,7 @@ const MarkdownRenderer = React.memo(function MarkdownRenderer({ content, isStrea
 
   return (
     <ClientOnly>
-      <div className="prose prose-slate max-w-none dark:prose-invert prose-pre:bg-transparent prose-pre:p-0 prose-p:leading-relaxed prose-a:text-indigo-600 hover:prose-a:text-indigo-700 prose-strong:text-slate-800 dark:prose-strong:text-slate-200 break-words">
+      <div className="prose prose-slate max-w-none break-words dark:prose-invert prose-pre:bg-transparent prose-pre:p-0 prose-p:leading-relaxed prose-a:text-indigo-600 hover:prose-a:text-indigo-700 prose-strong:text-slate-800 dark:prose-strong:text-slate-200 [&>*:last-child]:mb-0">
         <ReactMarkdown
           remarkPlugins={[remarkGfm, remarkMath]}
           rehypePlugins={[rehypeKatex]}
@@ -104,13 +104,13 @@ const MarkdownRenderer = React.memo(function MarkdownRenderer({ content, isStrea
               );
             },
             p({ children }) {
-              return <p className="mb-4 last:mb-0 leading-relaxed text-[15px] dark:text-slate-300">{children}</p>;
+              return <p className="mb-3 last:mb-0 leading-relaxed text-[15px] dark:text-slate-300">{children}</p>;
             },
             ul({ children }) {
-              return <ul className="list-disc pl-6 mb-4 space-y-1 dark:text-slate-300">{children}</ul>;
+              return <ul className="mb-3 list-disc space-y-1 pl-6 last:mb-0 dark:text-slate-300">{children}</ul>;
             },
             ol({ children }) {
-              return <ol className="list-decimal pl-6 mb-4 space-y-1 dark:text-slate-300">{children}</ol>;
+              return <ol className="mb-3 list-decimal space-y-1 pl-6 last:mb-0 dark:text-slate-300">{children}</ol>;
             },
             li({ children }) {
               return <li className="leading-relaxed text-[15px]">{children}</li>;
@@ -125,7 +125,7 @@ const MarkdownRenderer = React.memo(function MarkdownRenderer({ content, isStrea
               return <h3 className="text-lg font-bold mt-4 mb-2 text-slate-800 dark:text-slate-100">{children}</h3>;
             },
             blockquote({ children }) {
-              return <blockquote className="border-l-4 border-indigo-200 dark:border-indigo-500/30 pl-4 py-1 italic text-slate-600 dark:text-slate-400 bg-slate-50/50 dark:bg-slate-800/50 rounded-r-lg my-4">{children}</blockquote>;
+              return <blockquote className="my-3 rounded-r-lg border-l-4 border-indigo-200 bg-slate-50/50 py-1 pl-4 italic text-slate-600 last:mb-0 dark:border-indigo-500/30 dark:bg-slate-800/50 dark:text-slate-400">{children}</blockquote>;
             },
             table({ children }) {
               return (

@@ -267,6 +267,7 @@ export default function WelcomePage() {
             onSubmit={(value) => startChat(value)}
             onToggleWebSearch={setWebSearchEnabled}
             onFilesUpload={handleFilesUpload}
+            onAttachRecentFile={(file) => setAttachedFiles(prev => prev.some(item => item.name === file.name && item.ext === file.ext) ? prev : [...prev, file])}
             onRemoveFile={(index) => setAttachedFiles(prev => prev.filter((_, itemIndex) => itemIndex !== index))}
           />
 
