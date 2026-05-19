@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import {
   BookOpen,
   ChevronRight,
@@ -50,6 +50,13 @@ interface ComposerChatSummary {
   createdAt?: string;
   pendingAttachedFiles?: ComposerFile[];
   messages?: ComposerChatMessage[];
+}
+
+interface TextareaSlot {
+  left: number;
+  top: number;
+  width: number;
+  minHeight: number;
 }
 
 interface ChatComposerProps {
@@ -124,6 +131,8 @@ export default function ChatComposer({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const composerRef = useRef<HTMLFormElement>(null);
+  const compactTextSlotRef = useRef<HTMLDivElement>(null);
+  const expandedTextSlotRef = useRef<HTMLDivElement>(null);
   const dragDepthRef = useRef(0);
   const recognitionRef = useRef<SpeechRecognitionInstance | null>(null);
   const dictationBaseRef = useRef('');
@@ -132,15 +141,79 @@ export default function ChatComposer({
   const [isAttachMenuOpen, setIsAttachMenuOpen] = useState(false);
   const [isDictationEnabled, setIsDictationEnabled] = useState(() => loadGeneralSettings().dictationEnabled);
   const [recentFiles, setRecentFiles] = useState<ComposerRecentFile[]>([]);
+  const [textareaSlot, setTextareaSlot] = useState<TextareaSlot | null>(null);
+  const [textareaHeight, setTextareaHeight] = useState(44);
   const shortcuts = useShortcutLabels();
   const canSubmit = value.trim().length > 0 || attachedFiles.length > 0;
   const isToolComposerActive = webSearchEnabled;
+  const textareaTop = textareaSlot ? textareaSlot.top + (isToolComposerActive ? 0 : Math.max(0, (textareaSlot.minHeight - textareaHeight) / 2)) : 0;
+
+  const measureTextareaSlot = useCallback(() => {
+    const composerNode = composerRef.current;
+    const targetNode = isToolComposerActive ? expandedTextSlotRef.current : compactTextSlotRef.current;
+    if (!composerNode || !targetNode) return;
+
+    const composerRect = composerNode.getBoundingClientRect();
+    const targetRect = targetNode.getBoundingClientRect();
+    const nextSlot = {
+      left: targetRect.left - composerRect.left,
+      top: targetRect.top - composerRect.top,
+      width: targetRect.width,
+      minHeight: targetRect.height
+    };
+
+    setTextareaSlot(current => {
+      if (
+        current &&
+        Math.abs(current.left - nextSlot.left) < 0.5 &&
+        Math.abs(current.top - nextSlot.top) < 0.5 &&
+        Math.abs(current.width - nextSlot.width) < 0.5 &&
+        Math.abs(current.minHeight - nextSlot.minHeight) < 0.5
+      ) {
+        return current;
+      }
+
+      return nextSlot;
+    });
+  }, [isToolComposerActive]);
+
+  useLayoutEffect(() => {
+    measureTextareaSlot();
+  }, [measureTextareaSlot, textareaHeight]);
 
   useEffect(() => {
-    if (!textareaRef.current) return;
-    textareaRef.current.style.height = 'auto';
-    textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, maxTextareaHeight)}px`;
-  }, [maxTextareaHeight, value]);
+    const firstFrame = window.requestAnimationFrame(() => {
+      measureTextareaSlot();
+      window.requestAnimationFrame(measureTextareaSlot);
+    });
+    return () => window.cancelAnimationFrame(firstFrame);
+  }, [isToolComposerActive, measureTextareaSlot]);
+
+  useLayoutEffect(() => {
+    const textareaNode = textareaRef.current;
+    if (!textareaNode) return;
+    const minHeight = 44;
+    const previousHeight = textareaNode.style.height;
+    textareaNode.style.height = 'auto';
+    const nextHeight = Math.min(Math.max(textareaNode.scrollHeight, minHeight), maxTextareaHeight);
+    textareaNode.style.height = previousHeight;
+    setTextareaHeight(current => Math.abs(current - nextHeight) > 0.5 ? nextHeight : current);
+  }, [isToolComposerActive, maxTextareaHeight, textareaSlot?.minHeight, textareaSlot?.width, value]);
+
+  useEffect(() => {
+    measureTextareaSlot();
+    const resizeObserver = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(measureTextareaSlot) : null;
+    if (resizeObserver) {
+      if (composerRef.current) resizeObserver.observe(composerRef.current);
+      if (compactTextSlotRef.current) resizeObserver.observe(compactTextSlotRef.current);
+      if (expandedTextSlotRef.current) resizeObserver.observe(expandedTextSlotRef.current);
+    }
+    window.addEventListener('resize', measureTextareaSlot);
+    return () => {
+      resizeObserver?.disconnect();
+      window.removeEventListener('resize', measureTextareaSlot);
+    };
+  }, [measureTextareaSlot]);
 
   useEffect(() => {
     if (!webSearchEnabled) return;
@@ -340,7 +413,7 @@ export default function ChatComposer({
   };
 
   const toolsButton = (
-    <motion.div layout className="relative flex h-10 shrink-0 items-center justify-center sm:h-11">
+    <div className="relative flex h-10 shrink-0 items-center justify-center sm:h-11">
       <input
         type="file"
         multiple
@@ -386,7 +459,7 @@ export default function ChatComposer({
           />
         )}
       </AnimatePresence>
-    </motion.div>
+    </div>
   );
 
   const searchToolBadge = (
@@ -411,26 +484,8 @@ export default function ChatComposer({
     </AnimatePresence>
   );
 
-  const textareaField = (
-    <textarea
-      ref={textareaRef}
-      placeholder={placeholder}
-      className={`min-w-0 flex-1 resize-none bg-transparent text-[16px] font-medium leading-snug text-slate-800 outline-none placeholder:text-slate-400 custom-scrollbar dark:text-slate-100 dark:placeholder:text-slate-500 ${isToolComposerActive ? 'min-h-11 px-0 py-1 sm:min-h-12 sm:py-1.5' : 'min-h-10 px-1 py-2.5 sm:min-h-11 sm:py-3'}`}
-      style={{ maxHeight: maxTextareaHeight }}
-      rows={1}
-      value={value}
-      onChange={(event) => onChange(event.target.value)}
-      onKeyDown={(event) => {
-        if (event.key === 'Enter' && !event.shiftKey) {
-          event.preventDefault();
-          submit();
-        }
-      }}
-    />
-  );
-
   const actionControls = (
-    <motion.div layout className="flex min-w-0 shrink-0 items-center gap-0.5 sm:gap-1">
+    <div className="flex min-w-0 shrink-0 items-center gap-0.5 sm:gap-1">
       <div className="hidden min-w-0 max-w-[9rem] sm:block lg:max-w-[13rem]">
         <ModelSelector />
       </div>
@@ -450,7 +505,7 @@ export default function ChatComposer({
           {isBusy ? <Square className="h-4 w-4 fill-current" strokeWidth={2.35} /> : <Send className="h-5 w-5" strokeWidth={2.35} />}
         </button>
       </Tooltip>
-    </motion.div>
+    </div>
   );
 
   return (
@@ -480,8 +535,9 @@ export default function ChatComposer({
       )}
 
       <motion.form
-        layout
-        transition={{ layout: { duration: 0.34, ease: [0.33, 1, 0.68, 1] } }}
+        initial={false}
+        animate={{ minHeight: isToolComposerActive ? Math.max(104, textareaHeight + 64) : Math.max(68, textareaHeight + 12) }}
+        transition={{ duration: 0.32, ease: [0.33, 1, 0.68, 1] }}
         ref={composerRef}
         onSubmit={(event) => {
           event.preventDefault();
@@ -513,38 +569,60 @@ export default function ChatComposer({
           event.preventDefault();
           uploadFiles(files);
         }}
-        className={`relative rounded-[1.75rem] border bg-white shadow-[0_1px_2px_rgb(15_23_42/0.05),0_12px_34px_rgb(15_23_42/0.08)] transition-[border-color,box-shadow,padding] duration-[340ms] ease-out focus-within:border-slate-300 focus-within:shadow-[0_2px_6px_rgb(15_23_42/0.06),0_18px_42px_rgb(15_23_42/0.11)] sm:rounded-[2rem] dark:bg-slate-950/95 dark:shadow-2xl dark:shadow-black/25 dark:focus-within:border-indigo-400/60 ${isToolComposerActive ? 'px-4 py-3 shadow-[0_2px_10px_rgb(15_23_42/0.08),0_18px_44px_rgb(15_23_42/0.11)] sm:px-5 sm:py-3.5' : 'px-2 py-1.5'} ${isDraggingFile ? 'border-indigo-400 ring-4 ring-indigo-100 dark:ring-indigo-500/15' : isToolComposerActive ? 'border-blue-200 dark:border-blue-400/35' : 'border-slate-200 dark:border-slate-700'}`}
+        className={`relative rounded-[1.75rem] border bg-white shadow-[0_1px_2px_rgb(15_23_42/0.05),0_12px_34px_rgb(15_23_42/0.08)] transition-[border-color,box-shadow] duration-[340ms] ease-out focus-within:border-slate-300 focus-within:shadow-[0_2px_6px_rgb(15_23_42/0.06),0_18px_42px_rgb(15_23_42/0.11)] sm:rounded-[2rem] dark:bg-slate-950/95 dark:shadow-2xl dark:shadow-black/25 dark:focus-within:border-indigo-400/60 ${isToolComposerActive ? 'px-4 py-3 shadow-[0_2px_10px_rgb(15_23_42/0.08),0_18px_44px_rgb(15_23_42/0.11)] sm:px-5 sm:py-3.5' : 'px-2 py-1.5'} ${isDraggingFile ? 'border-indigo-400 ring-4 ring-indigo-100 dark:ring-indigo-500/15' : isToolComposerActive ? 'border-blue-200 dark:border-blue-400/35' : 'border-slate-200 dark:border-slate-700'}`}
       >
         <motion.div
-          layout
           initial={false}
-          animate={{ minHeight: isToolComposerActive ? 104 : 56 }}
-          transition={{ duration: 0.34, ease: [0.33, 1, 0.68, 1] }}
-          className={`grid grid-cols-[auto_minmax(0,1fr)_auto] overflow-visible ${isToolComposerActive ? 'grid-rows-[minmax(2.75rem,auto)_2.75rem] gap-x-1.5 gap-y-2 sm:gap-x-2' : 'grid-rows-[0rem_3.5rem] gap-x-0.5 sm:gap-x-2'}`}
+          animate={{
+            minHeight: isToolComposerActive ? Math.max(104, textareaHeight + 56) : Math.max(56, textareaHeight),
+            gridTemplateRows: isToolComposerActive ? `${Math.max(44, textareaHeight)}px 44px` : `0px ${Math.max(56, textareaHeight)}px`,
+            rowGap: isToolComposerActive ? 8 : 0
+          }}
+          transition={{ duration: 0.32, ease: [0.33, 1, 0.68, 1] }}
+          className="grid grid-cols-[auto_auto_minmax(0,1fr)_auto] overflow-visible gap-x-0.5 sm:gap-x-2"
         >
-          <motion.div
-            layout
-            transition={{ duration: 0.34, ease: [0.33, 1, 0.68, 1] }}
-            className="col-start-1 row-start-2 flex min-w-0 items-center gap-1.5"
-          >
+          <div className="col-start-1 row-start-2 flex min-w-0 items-center">
             {toolsButton}
+          </div>
+          <div className="col-start-2 row-start-2 flex min-w-0 items-center">
             {searchToolBadge}
-          </motion.div>
-          <motion.div
-            layout
-            transition={{ duration: 0.34, ease: [0.33, 1, 0.68, 1] }}
-            className={`${isToolComposerActive ? 'col-start-1 col-end-4 row-start-1 flex min-w-0 items-start' : 'col-start-2 row-start-2 flex min-w-0 items-center'}`}
-          >
-            {textareaField}
-          </motion.div>
-          <motion.div
-            layout
-            transition={{ duration: 0.34, ease: [0.33, 1, 0.68, 1] }}
-            className="col-start-3 row-start-2 flex items-center justify-end"
-          >
+          </div>
+          <div
+            ref={expandedTextSlotRef}
+            className="pointer-events-none invisible col-start-1 col-end-5 row-start-1 min-w-0"
+            aria-hidden="true"
+          />
+          <div
+            ref={compactTextSlotRef}
+            className="pointer-events-none invisible col-start-2 col-end-4 row-start-2 min-w-0"
+            aria-hidden="true"
+          />
+          <div className="col-start-4 row-start-2 flex items-center justify-end">
             {actionControls}
-          </motion.div>
+          </div>
         </motion.div>
+        <textarea
+          ref={textareaRef}
+          placeholder={placeholder}
+          className={`absolute z-20 resize-none bg-transparent text-[16px] font-medium leading-snug text-slate-800 outline-none placeholder:text-slate-400 custom-scrollbar transition-[left,top,width,height,padding] duration-[280ms] ease-[cubic-bezier(0.33,1,0.68,1)] dark:text-slate-100 dark:placeholder:text-slate-500 ${isToolComposerActive ? 'px-0 py-2' : 'px-1 py-2.5'}`}
+          style={{
+            left: textareaSlot ? `${textareaSlot.left}px` : 0,
+            top: `${textareaTop}px`,
+            width: textareaSlot ? `${textareaSlot.width}px` : '100%',
+            height: `${textareaHeight}px`,
+            maxHeight: maxTextareaHeight,
+            opacity: textareaSlot ? 1 : 0
+          }}
+          rows={1}
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter' && !event.shiftKey) {
+              event.preventDefault();
+              submit();
+            }
+          }}
+        />
       </motion.form>
     </div>
   );
