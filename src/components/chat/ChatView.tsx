@@ -17,7 +17,7 @@ import {
 import { formatClarificationAnswer, isGeneratedClarificationAnswerContent, parseAgentClarification, type AgentClarification, type AgentClarificationAnswer, type AgentClarificationOption } from '@/lib/agent-clarification';
 import { IMAGE_GENERATION_STATUS_TEXTS, getGenerationMode, type GenerationMode } from '@/lib/image-generation';
 import { normalizeImageAspectRatio, type ImageAspectRatio } from '@/lib/image-aspect-ratio';
-import { loadComposerToolState, saveComposerToolState } from '@/lib/composer-tool-state';
+import { defaultComposerToolState, loadComposerToolState, saveComposerToolState } from '@/lib/composer-tool-state';
 import { AnimatePresence, motion } from 'framer-motion';
 import {
   Copy, ThumbsUp, ThumbsDown, RefreshCcw,
@@ -190,9 +190,10 @@ export default function ChatView({ chatId }: { chatId: string }) {
   const [isLoading, setIsLoading] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>([]);
-  const [webSearchEnabled, setWebSearchEnabled] = useState(() => loadComposerToolState().webSearchEnabled);
-  const [imageGenerationEnabled, setImageGenerationEnabled] = useState(() => loadComposerToolState().imageGenerationEnabled);
-  const [imageAspectRatio, setImageAspectRatio] = useState<ImageAspectRatio>(() => loadComposerToolState().imageAspectRatio);
+  const [webSearchEnabled, setWebSearchEnabled] = useState(defaultComposerToolState.webSearchEnabled);
+  const [imageGenerationEnabled, setImageGenerationEnabled] = useState(defaultComposerToolState.imageGenerationEnabled);
+  const [imageAspectRatio, setImageAspectRatio] = useState<ImageAspectRatio>(defaultComposerToolState.imageAspectRatio);
+  const [isComposerToolStateLoaded, setIsComposerToolStateLoaded] = useState(false);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const composerContentRef = useRef<HTMLDivElement>(null);
   const dotsContainerRef = useRef<HTMLDivElement>(null);
@@ -236,8 +237,25 @@ export default function ChatView({ chatId }: { chatId: string }) {
   }, [input, chatId]);
 
   useEffect(() => {
+    let cancelled = false;
+    const frame = window.requestAnimationFrame(() => {
+      if (cancelled) return;
+      const toolState = loadComposerToolState();
+      setWebSearchEnabled(toolState.webSearchEnabled);
+      setImageGenerationEnabled(toolState.imageGenerationEnabled);
+      setImageAspectRatio(toolState.imageAspectRatio);
+      setIsComposerToolStateLoaded(true);
+    });
+    return () => {
+      cancelled = true;
+      window.cancelAnimationFrame(frame);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!isComposerToolStateLoaded) return;
     saveComposerToolState({ webSearchEnabled, imageGenerationEnabled, imageAspectRatio });
-  }, [webSearchEnabled, imageGenerationEnabled, imageAspectRatio]);
+  }, [webSearchEnabled, imageGenerationEnabled, imageAspectRatio, isComposerToolStateLoaded]);
 
   useEffect(() => {
     if (activeUserMsgId && dotsContainerRef.current) {

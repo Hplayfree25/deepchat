@@ -6,7 +6,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 import toast from 'react-hot-toast';
 import { createChat, getChats, uploadFile } from './actions';
 import ChatComposer, { getComposerDisplayName, getComposerFileIcon } from '@/components/ui/ChatComposer';
-import { loadComposerToolState, saveComposerToolState } from '@/lib/composer-tool-state';
+import { defaultComposerToolState, loadComposerToolState, saveComposerToolState } from '@/lib/composer-tool-state';
 import { type ImageAspectRatio } from '@/lib/image-aspect-ratio';
 import {
   ArrowUpRight,
@@ -76,24 +76,41 @@ const quickPrompts = [
 
 export default function WelcomePage() {
   const router = useRouter();
-  const [input, setInput] = useState(() => {
-    if (typeof window === 'undefined') return '';
-    return localStorage.getItem('deepchat-draft-new') || '';
-  });
+  const [input, setInput] = useState('');
   const [isUploading, setIsUploading] = useState(false);
   const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>([]);
   const [recentFiles, setRecentFiles] = useState<RecentFile[]>([]);
-  const [webSearchEnabled, setWebSearchEnabled] = useState(() => loadComposerToolState().webSearchEnabled);
-  const [imageGenerationEnabled, setImageGenerationEnabled] = useState(() => loadComposerToolState().imageGenerationEnabled);
-  const [imageAspectRatio, setImageAspectRatio] = useState<ImageAspectRatio>(() => loadComposerToolState().imageAspectRatio);
+  const [webSearchEnabled, setWebSearchEnabled] = useState(defaultComposerToolState.webSearchEnabled);
+  const [imageGenerationEnabled, setImageGenerationEnabled] = useState(defaultComposerToolState.imageGenerationEnabled);
+  const [imageAspectRatio, setImageAspectRatio] = useState<ImageAspectRatio>(defaultComposerToolState.imageAspectRatio);
+  const [isClientStateLoaded, setIsClientStateLoaded] = useState(false);
 
   useEffect(() => {
+    let cancelled = false;
+    const frame = window.requestAnimationFrame(() => {
+      if (cancelled) return;
+      const toolState = loadComposerToolState();
+      setInput(localStorage.getItem('deepchat-draft-new') || '');
+      setWebSearchEnabled(toolState.webSearchEnabled);
+      setImageGenerationEnabled(toolState.imageGenerationEnabled);
+      setImageAspectRatio(toolState.imageAspectRatio);
+      setIsClientStateLoaded(true);
+    });
+    return () => {
+      cancelled = true;
+      window.cancelAnimationFrame(frame);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!isClientStateLoaded) return;
     localStorage.setItem('deepchat-draft-new', input);
-  }, [input]);
+  }, [input, isClientStateLoaded]);
 
   useEffect(() => {
+    if (!isClientStateLoaded) return;
     saveComposerToolState({ webSearchEnabled, imageGenerationEnabled, imageAspectRatio });
-  }, [webSearchEnabled, imageGenerationEnabled, imageAspectRatio]);
+  }, [webSearchEnabled, imageGenerationEnabled, imageAspectRatio, isClientStateLoaded]);
 
   useEffect(() => {
     let mounted = true;
