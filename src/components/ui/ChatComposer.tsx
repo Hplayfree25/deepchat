@@ -577,7 +577,7 @@ export default function ChatComposer({
             rowGap: isToolComposerActive ? 8 : 0
           }}
           transition={{ duration: 0.32, ease: [0.33, 1, 0.68, 1] }}
-          className="grid grid-cols-[auto_auto_minmax(0,1fr)_auto] overflow-visible gap-x-0.5 sm:gap-x-2"
+          className="grid grid-cols-[auto_minmax(0,1fr)_auto] overflow-visible gap-x-0.5 sm:gap-x-2"
         >
           <div className="col-start-1 row-start-2 flex min-w-0 items-center">
             {toolsButton}
@@ -587,15 +587,15 @@ export default function ChatComposer({
           </div>
           <div
             ref={expandedTextSlotRef}
-            className="pointer-events-none invisible col-start-1 col-end-5 row-start-1 min-w-0"
+            className="pointer-events-none invisible col-start-1 col-end-4 row-start-1 min-w-0"
             aria-hidden="true"
           />
           <div
             ref={compactTextSlotRef}
-            className="pointer-events-none invisible col-start-2 col-end-4 row-start-2 min-w-0"
+            className="pointer-events-none invisible col-start-2 col-end-3 row-start-2 min-w-0"
             aria-hidden="true"
           />
-          <div className="col-start-4 row-start-2 flex items-center justify-end">
+          <div className="col-start-3 row-start-2 flex items-center justify-end">
             {actionControls}
           </div>
         </motion.div>
