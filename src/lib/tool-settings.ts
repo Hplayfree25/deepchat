@@ -211,13 +211,25 @@ const getDuckDuckGoRuntimeItem = (): ToolRuntimeItem => ({
   missingEnv: []
 });
 
+const getBingRuntimeItem = (): ToolRuntimeItem => ({
+  toolId: 'bing',
+  name: 'Bing',
+  description: 'No-key web search option for lightweight browsing-style queries.',
+  category: 'No API Search',
+  env: [],
+  tags: ['no-api', 'bing', 'search'],
+  config: {},
+  configured: true,
+  missingEnv: []
+});
+
 const getEnabledSearchRuntimeItems = (settings: ToolSettings, requested: boolean): ToolRuntimeItem[] => {
   if (!settings.searchEnabled) return [];
   if (!requested) return [];
   const installed = getInstalledSearchRuntimeItems(settings);
   const configuredInstalled = installed.filter(item => item.configured);
   if (configuredInstalled.length > 0) return configuredInstalled;
-  return [getDuckDuckGoRuntimeItem()];
+  return [getDuckDuckGoRuntimeItem(), getBingRuntimeItem()];
 };
 
 export const getEnabledToolRuntimeItems = (webSearchRequested = false): ToolRuntimeItem[] => {

@@ -478,7 +478,7 @@ export default function ChatComposer({
   const searchToolBadge = (
     <div className="flex min-w-0 items-center gap-0.5 sm:gap-1">
       <SearchToolBadge enabled={webSearchEnabled} onDisable={() => onToggleWebSearch?.(false)} />
-      <ImageToolBadge enabled={imageGenerationEnabled} aspectRatio={imageAspectRatio} onDisable={() => onToggleImageGeneration?.(false)} />
+      <ImageToolBadge enabled={imageGenerationEnabled} aspectRatio={imageAspectRatio} onDisable={() => onToggleImageGeneration?.(false)} onAspectRatioChange={onImageAspectRatioChange} />
     </div>
   );
 

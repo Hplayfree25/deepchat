@@ -3,10 +3,21 @@
 import { getChat, saveMessage, updateChatTitle } from '@/app/actions';
 import { getEnabledMCPRuntimeServers } from '@/lib/mcp-settings';
 import { publishDeepChatNotification } from '@/lib/notification-settings';
-import { getEnabledToolRuntimeItems, loadToolSettings, shouldUseSmartSearch } from '@/lib/tool-settings';
+import { getEnabledToolRuntimeItems } from '@/lib/tool-settings';
 import { parseAgentClarification, parseGeneratedClarificationAnswerContent, type AgentClarification } from '@/lib/agent-clarification';
 import { getGenerationMode, stripGeneratedImageMarkdown, type GenerationMode } from '@/lib/image-generation';
 import { normalizeImageAspectRatio, type ImageAspectRatio } from '@/lib/image-aspect-ratio';
+import {
+  decideBackendTools,
+  getAnalysisRuntimeMode,
+  getLatestUserMessage,
+  isSpreadsheetAnalysisRequest,
+  normalizeAttachedDataFiles,
+  shouldRequestImageGeneration,
+  type AnalysisRuntimeMode,
+  type AttachedDataFile,
+  type BackendToolDecision
+} from '@/lib/backend-tools';
 
 interface SearchSource {
   title: string;
@@ -38,11 +49,6 @@ interface ChatApiMessage {
   [key: string]: unknown;
 }
 
-interface AttachedDataFile {
-  name: string;
-  ext: string;
-}
-
 interface CodeAnalysisResponse {
   success?: boolean;
   error?: string;
@@ -55,15 +61,6 @@ interface CodeAnalysisResponse {
     stderr?: string;
   };
   [key: string]: unknown;
-}
-
-type AnalysisRuntimeMode = 'excel_light' | 'table' | 'chart' | 'analysis';
-
-interface ToolDecision {
-  useSearch: boolean;
-  useCodeAnalysis: boolean;
-  reason?: string;
-  source: 'manual' | 'ai' | 'heuristic';
 }
 
 interface ChatMessageVersion {
@@ -521,154 +518,6 @@ const readChatResponseText = async (res: Response) => {
   return { text: text.trim(), sources };
 };
 
-const DATA_ANALYSIS_EXTENSIONS = new Set(['csv', 'json', 'jsonl', 'xlsx', 'xls']);
-const DATA_ANALYSIS_PROMPT_PATTERN = /(analy[sz]e\s+(this\s+)?(data|dataset|file|csv|spreadsheet)|data\s+analysis|csv|excel|spreadsheet|statistics|mean|median|standard deviation|correlation|regression|cluster|clustering|pivot|grouping|aggregate|outlier|analisis\s+data|statistik|korelasi|regresi|pivot|agregasi|rata-rata|median|visuali[sz](e|ation)\s+(this\s+)?(data|dataset|csv|spreadsheet|prices?|stocks?|market|sales|revenue|harga|saham|tren|trend)|(?:chart|plot|grafik)\s+(?:of|for|data|dataset|prices?|stocks?|market|sales|revenue|harga|saham|tren|trend)|\b(?:buat(?:kan)?|bikin(?:kan)?|generate|create)\b[\s\S]{0,120}\b(?:chart|plot|grafik|visualisasi)\b)/i;
-const CODE_EXECUTION_PROMPT_PATTERN = /(\b(run|execute|test|evaluate)\b[\s\S]{0,80}\b(code|script|python|snippet)\b|\b(code|script|python|snippet)\b[\s\S]{0,80}\b(run|execute|test|evaluate)\b|\b(calculate|compute|simulate|simulation|monte carlo|numerically solve|optimi[sz]e|benchmark)\b|\b(hitung|kalkulasi|simulasi|jalankan|eksekusi|uji)\b[\s\S]{0,80}\b(kode|skrip|python|angka|perhitungan|rumus)\b)/i;
-const CURRENT_MARKET_ANALYSIS_PATTERN = /((stock|stocks|ticker|market|crypto|coin|forex|exchange rate|price|prices|saham|bursa|emiten|kripto|koin|kurs|harga).*(visuali[sz]e|visualization|chart|plot|grafik|forecast|predict|prediction|projection|trend|outlook|analy[sz]e|analysis|prediksi|proyeksi|tren|analisis|kedepan|ke depan|mendatang))|((visuali[sz]e|visualization|chart|plot|grafik|forecast|predict|prediction|projection|trend|outlook|analy[sz]e|analysis|prediksi|proyeksi|tren|analisis).*(stock|stocks|ticker|market|crypto|coin|forex|exchange rate|price|prices|saham|bursa|emiten|kripto|koin|kurs|harga))/i;
-const SPREADSHEET_REQUEST_PATTERN = /\b(excel|spreadsheet|workbook|xlsx|sheet|worksheet|table|tabel|lembar kerja|rumus|formula|cashflow|cash flow|arus kas)\b/i;
-
-const getLatestUserMessage = (messages: ChatApiMessage[]) => [...messages].reverse().find(message => message.role === 'user');
-const shouldRequestImageGeneration = (message: ChatApiMessage | undefined) => message?.imageGenerationEnabled === true;
-
-const getRecentConversationContext = (messages: ChatApiMessage[]) => messages.slice(-6).map(message => {
-  const role = message.role === 'assistant' ? 'Assistant' : message.role === 'user' ? 'User' : 'System';
-  const content = parseAgentClarification(message.content || '').visibleContent.replace(/\s+/g, ' ').trim();
-  return `${role}: ${content.slice(0, 700)}`;
-}).join('\n');
-
-const normalizeAttachedDataFiles = (value: unknown): AttachedDataFile[] => {
-  if (!Array.isArray(value)) return [];
-  return value.map((item): AttachedDataFile | null => {
-    if (!isRecord(item)) return null;
-    const name = getString(item.name);
-    const ext = getString(item.ext).toLowerCase().replace(/^\./, '');
-    if (!name || !DATA_ANALYSIS_EXTENSIONS.has(ext)) return null;
-    return { name, ext };
-  }).filter((item): item is AttachedDataFile => Boolean(item));
-};
-
-const shouldUseCodeAnalysis = (message: ChatApiMessage | undefined) => {
-  if (!message) return false;
-  if (!loadToolSettings().codeExecutionEnabled) return false;
-  const files = normalizeAttachedDataFiles(message.attachedFiles);
-  const content = message.content || '';
-  return files.length > 0 || DATA_ANALYSIS_PROMPT_PATTERN.test(content) || CODE_EXECUTION_PROMPT_PATTERN.test(content) || CURRENT_MARKET_ANALYSIS_PATTERN.test(content);
-};
-
-const isSpreadsheetAnalysisRequest = (message: ChatApiMessage | undefined) => Boolean(message && SPREADSHEET_REQUEST_PATTERN.test(message.content || ''));
-
-const getAnalysisRuntimeMode = (message: ChatApiMessage | undefined, requestedCharts: string[]): AnalysisRuntimeMode => {
-  const content = message?.content || '';
-  const hasFiles = normalizeAttachedDataFiles(message?.attachedFiles).length > 0;
-  if (isSpreadsheetAnalysisRequest(message)) return 'table';
-  if (requestedCharts.length > 0 || /\b(chart|plot|grafik|visuali[sz]|visualisasi|tren|trend)\b/i.test(content)) return 'chart';
-  if (/\b(regression|regresi|cluster|clustering|forecast|predict|prediction|prediksi|proyeksi|statistics|statistik|correlation|korelasi|outlier|model)\b/i.test(content)) return 'analysis';
-  return hasFiles ? 'table' : 'analysis';
-};
-
-const shouldRequestWebSearch = (message: ChatApiMessage | undefined) => {
-  if (!message) return false;
-  if (message.webSearchEnabled === true) return true;
-  if (CURRENT_MARKET_ANALYSIS_PATTERN.test(message.content || '')) return true;
-  return shouldUseSmartSearch(message.content || '');
-};
-
-const getHeuristicToolDecision = (message: ChatApiMessage | undefined): ToolDecision => ({
-  useSearch: shouldRequestWebSearch(message),
-  useCodeAnalysis: shouldUseCodeAnalysis(message),
-  source: message?.webSearchEnabled === true ? 'manual' : 'heuristic'
-});
-
-const extractJsonObject = (text: string) => {
-  const match = text.match(/\{[\s\S]*\}/);
-  if (!match) return null;
-  try {
-    const parsed = JSON.parse(match[0]) as unknown;
-    return isRecord(parsed) ? parsed : null;
-  } catch {
-    return null;
-  }
-};
-
-const normalizeToolDecision = (value: Record<string, unknown>, fallback: ToolDecision, codeAnalysisEnabled: boolean, manualSearch: boolean): ToolDecision => {
-  const useSearch = manualSearch || value.useSearch === true;
-  const useCodeAnalysis = codeAnalysisEnabled && value.useCodeAnalysis === true;
-  return {
-    useSearch,
-    useCodeAnalysis,
-    source: manualSearch ? 'manual' : 'ai',
-    reason: getString(value.reason).slice(0, 240) || fallback.reason
-  };
-};
-
-const getToolDecisionInstruction = (codeAnalysisEnabled: boolean, manualSearch: boolean) => [
-  'You are DeepChat Tool Router. Choose which runtime tools should run before the assistant answers.',
-  'Return only compact JSON with this exact shape: {"useSearch":boolean,"useCodeAnalysis":boolean,"reason":"short reason"}.',
-  'Available tools:',
-  'Search: finds fresh web facts and returns source-aware context. Use it for current/latest/recent information, prices, availability, news, public people or organizations, product specs, releases, citations, and facts likely to change.',
-  codeAnalysisEnabled ? 'Code Execution: creates real Python-backed results, charts, downloadable Excel workbooks, spreadsheet previews, formulas, formatted tables, projections, calculations, simulations, benchmarks, statistics, aggregations, and dataset analysis. If the user asks to run code, execute Python, calculate, simulate, or make an Excel/XLSX/workbook/table with formulas or styling, use Code Execution.' : 'Code Execution is disabled, so useCodeAnalysis must be false.',
-  manualSearch ? 'The user manually enabled Search, so useSearch must be true.' : 'If the request can be answered from conversation context or stable general knowledge, do not use Search.',
-  'Prefer no tool for greetings, translation, writing, brainstorming, coding help, explanations, or local reasoning unless the user explicitly asks for current external facts.',
-  'Use Search only for web fact-finding tasks such as "find the latest...", "carikan data terbaru...", company profiles, news, product information, or source-backed summaries when no numeric computation or chart is requested.',
-  'Use Code Execution for attached files, explicit computation/charting over data that is already available in the conversation, runnable code requests, calculations, simulations, or spreadsheet/table generation such as Excel, XLSX, workbook, formulas, pivot tables, and formatted data tables.',
-  'Use both Search and Code Execution when the user asks for analysis, visualization, charting, forecasting, or prediction based on current web facts, such as stock prices, crypto prices, market trends, exchange rates, commodity prices, or recent public datasets.',
-  'Examples: "visualisasi harga saham B ke depannya" => both true; "carikan berita terbaru saham B" => Search true, Code Execution false; "analisis CSV ini dan buat grafik" => Search false, Code Execution true; "buatkan tabel Excel dengan rumus" => Search false, Code Execution true; "jalankan kode Python ini" => Search false, Code Execution true; "siapa CEO terbaru X?" => Search true, Code Execution false.',
-  'Never ask the user which tool to use.'
-].join('\n');
-
-const getToolDecisionUserPrompt = (messages: ChatApiMessage[], latestUserMessage: ChatApiMessage, codeAnalysisEnabled: boolean) => {
-  const files = normalizeAttachedDataFiles(latestUserMessage.attachedFiles);
-  return [
-    `Latest user message: ${latestUserMessage.content || ''}`,
-    `Manual Search toggle: ${latestUserMessage.webSearchEnabled === true ? 'on' : 'off'}`,
-    `Code Analysis enabled: ${codeAnalysisEnabled ? 'yes' : 'no'}`,
-    files.length ? `Attached data files: ${files.map(file => `${file.name} (${file.ext})`).join(', ')}` : 'Attached data files: none',
-    'Recent conversation:',
-    getRecentConversationContext(messages)
-  ].join('\n\n');
-};
-
-const decideToolsWithAI = async (task: ChatGenerationTask, latestUserMessage: ChatApiMessage, fallback: ToolDecision): Promise<ToolDecision> => {
-  const codeAnalysisEnabled = loadToolSettings().codeExecutionEnabled;
-  const manualSearch = latestUserMessage.webSearchEnabled === true;
-  if (!task.connection?.connectionId && !task.connection?.id) return fallback;
-  try {
-    const res = await fetch('/api/chat', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        messages: [
-          { role: 'system', content: getToolDecisionInstruction(codeAnalysisEnabled, manualSearch) },
-          { role: 'user', content: getToolDecisionUserPrompt(task.apiMessages, latestUserMessage, codeAnalysisEnabled) }
-        ],
-        connectionId: task.connection?.connectionId,
-        modelId: task.connection?.id,
-        mcpServers: [],
-        tools: [],
-        skipAgentLoop: true,
-        skipRuntimeIntegrations: true
-      }),
-      signal: task.controller.signal
-    });
-    const result = await readChatResponseText(res);
-    const parsed = extractJsonObject(result.text);
-    return parsed ? normalizeToolDecision(parsed, fallback, codeAnalysisEnabled, manualSearch) : fallback;
-  } catch {
-    return fallback;
-  }
-};
-
-const decideTools = async (task: ChatGenerationTask, latestUserMessage: ChatApiMessage | undefined): Promise<ToolDecision> => {
-  const fallback = getHeuristicToolDecision(latestUserMessage);
-  if (!latestUserMessage) return fallback;
-  if (fallback.useCodeAnalysis) return fallback;
-  if (latestUserMessage.webSearchEnabled === true) {
-    const decision = await decideToolsWithAI(task, latestUserMessage, fallback);
-    return { ...decision, useSearch: true, source: 'manual' };
-  }
-  return decideToolsWithAI(task, latestUserMessage, fallback);
-};
-
 const getRequestedChartTypes = (prompt: string) => {
   const text = prompt.toLowerCase();
   const chartTypes = [
@@ -1013,7 +862,7 @@ const getSpreadsheetFinalText = (data: CodeAnalysisResponse) => {
   ].join('\n');
 };
 
-const runCodeAnalysisTool = async (task: ChatGenerationTask, latestUserMessage: ChatApiMessage, decision: ToolDecision) => {
+const runCodeAnalysisTool = async (task: ChatGenerationTask, latestUserMessage: ChatApiMessage, decision: BackendToolDecision) => {
   const files = normalizeAttachedDataFiles(latestUserMessage.attachedFiles);
   const requestedCharts = getRequestedChartTypes(latestUserMessage.content || '');
   const wantsSpreadsheet = isSpreadsheetAnalysisRequest(latestUserMessage);
@@ -1348,7 +1197,7 @@ const consumeStream = async (task: ChatGenerationTask, res: Response) => {
 const runTask = async (task: ChatGenerationTask) => {
   try {
     const latestUserMessage = getLatestUserMessage(task.apiMessages);
-    const toolDecision = await decideTools(task, latestUserMessage);
+    const toolDecision = await decideBackendTools(task.apiMessages, latestUserMessage, task.connection, task.controller.signal);
     if (latestUserMessage && toolDecision.useCodeAnalysis) {
       await runCodeAnalysisTool(task, latestUserMessage, toolDecision);
       return;

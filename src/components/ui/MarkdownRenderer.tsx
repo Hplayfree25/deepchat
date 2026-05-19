@@ -142,7 +142,7 @@ const MarkdownRenderer = React.memo(function MarkdownRenderer({ content, isStrea
             },
             a({ href, children }) {
               const linkedSource = typeof href === 'string' ? getSourceByUrl(href, searchSources) : null;
-              if (linkedSource && isCitationText(children)) {
+              if (linkedSource) {
                 return <CitationLink source={linkedSource} />;
               }
               return <a href={href} target="_blank" rel="noopener noreferrer" className="text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 hover:underline font-medium">{children}</a>;
@@ -399,11 +399,6 @@ function normalizeUrl(url: string) {
   } catch {
     return url.replace(/[#?].*$/, '').replace(/\/$/, '').toLowerCase();
   }
-}
-
-function isCitationText(children: React.ReactNode) {
-  const text = getChildrenText(children);
-  return /^[\[\](),;\s0-9a-zA-Z.-]{1,64}$/.test(text);
 }
 
 function getChildrenText(children: React.ReactNode) {

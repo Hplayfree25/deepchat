@@ -714,6 +714,6 @@ export const buildIntegrationSystemPrompt = (servers: ChatMCPRuntimeServer[], to
     enabledServers ? `Enabled MCP servers:\n${enabledServers}` : '',
     enabledTools ? `Enabled tools:\n${enabledTools}` : '',
     context ? `Runtime context collected from enabled integrations:\n${context}` : '',
-    'Use configured integrations only when they are relevant to the user request. If web search sources are present, answer directly from them, cite source numbers inline, and keep citations attached to the exact claims they support. If Code Execution context is present, use it for quantitative or file-based analysis rather than guessing calculations. If an integration is missing required configuration, ask the user to configure it in Settings before relying on it. Do not reveal secret values.'
+    'Use configured integrations only when they are relevant to the user request. If web search sources are present, answer directly from them, cite source numbers inline, keep citations attached to the exact claims they support, and do not say you lack real-time or web access. If Web Search is unavailable, say the Search tool failed briefly instead of pretending current data was checked. If Code Execution context is present, use it for quantitative or file-based analysis rather than guessing calculations. If an integration is missing required configuration, ask the user to configure it in Settings before relying on it. Do not reveal secret values.'
   ].filter(Boolean).join('\n\n');
 };

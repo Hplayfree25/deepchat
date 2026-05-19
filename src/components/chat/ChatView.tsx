@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import Image from 'next/image';
 import { getChat, saveMessage, uploadFile } from '@/app/actions';
 import MarkdownRenderer from '@/components/ui/MarkdownRenderer';
 import ChatComposer, { getComposerFileIcon } from '@/components/ui/ChatComposer';
@@ -844,16 +845,23 @@ function ReasoningSection({ content, isStreaming = false, duration }: { content:
   );
 }
 
-function MCPUsageSection({ notice, usage = [] }: { notice?: string, usage?: MCPUsageItem[] }) {
+function MCPUsageSection({ notice, usage = [], searchSources = [] }: { notice?: string, usage?: MCPUsageItem[], searchSources?: SearchSource[] }) {
   const [isExpanded, setIsExpanded] = useState(false);
   if (!notice && usage.length === 0) return null;
-  if (usage.length === 1 && usage[0].id === 'code-execution') {
+  if (!notice && usage.length === 1 && usage[0].id === 'code-execution') {
     return <CodeExecutionUsageSection usage={usage[0]} />;
   }
+  if (!notice && usage.length === 1 && isSearchUsage(usage[0])) {
+    return <SearchUsageSection usage={usage[0]} searchSources={searchSources} />;
+  }
 
-  const names = usage.map(item => item.name).join(', ');
-  const hasRunning = usage.some(item => item.status === 'running');
-  const hasError = usage.some(item => item.status === 'error');
+  const searchUsage = usage.find(isSearchUsage);
+  const panelUsage = usage.filter(item => !isSearchUsage(item));
+  const singlePanelCodeUsage = panelUsage.length === 1 && panelUsage[0].id === 'code-execution';
+
+  const names = panelUsage.map(item => item.name).join(', ');
+  const hasRunning = panelUsage.some(item => item.status === 'running');
+  const hasError = panelUsage.some(item => item.status === 'error');
   const title = names ? `Using MCP ${names}` : 'Using MCP';
 
   return (
@@ -863,7 +871,9 @@ function MCPUsageSection({ notice, usage = [] }: { notice?: string, usage?: MCPU
           {notice}
         </div>
       )}
-      {usage.length > 0 && (
+      {searchUsage && <SearchUsageSection usage={searchUsage} searchSources={searchSources} />}
+      {singlePanelCodeUsage && <CodeExecutionUsageSection usage={panelUsage[0]} />}
+      {panelUsage.length > 0 && !singlePanelCodeUsage && (
         <div className="overflow-hidden rounded-2xl border border-indigo-100 bg-indigo-50/70 shadow-sm">
           <button
             type="button"
@@ -885,7 +895,7 @@ function MCPUsageSection({ notice, usage = [] }: { notice?: string, usage?: MCPU
           </button>
           {isExpanded && (
             <div className="space-y-3 border-t border-indigo-100 bg-white px-4 py-3">
-              {usage.map(item => (
+              {panelUsage.map(item => (
                 <div key={item.id}>
                   <div className="mb-1 flex items-center justify-between gap-3">
                     <p className="text-xs font-extrabold text-slate-700">{item.name}</p>
@@ -990,6 +1000,109 @@ function ClarificationAnswerBadge({ answer }: { answer: AgentClarificationAnswer
       </div>
     </div>
   );
+}
+
+function isSearchUsage(usage: MCPUsageItem) {
+  return usage.id === 'web-search' || usage.name.toLowerCase() === 'search';
+}
+
+function AnimatedSearchDots() {
+  const [dotCount, setDotCount] = useState(1);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      setDotCount(count => count === 3 ? 1 : count + 1);
+    }, 420);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  return <span className="inline-block w-4 text-left" aria-hidden="true">{'.'.repeat(dotCount)}</span>;
+}
+
+function SearchUsageSection({ usage, searchSources = [] }: { usage: MCPUsageItem, searchSources?: SearchSource[] }) {
+  const [isExpanded, setIsExpanded] = useState(false);
+  const isError = usage.status === 'error';
+  const isRunning = usage.status === 'running';
+  const sourceCount = searchSources.length > 0 ? String(searchSources.length) : getSearchSourceCount(usage);
+  const sourceText = sourceCount ? `${sourceCount} source${sourceCount === '1' ? '' : 's'}` : '';
+  const title = isError ? 'Search error' : isRunning ? `Searching${sourceCount ? ` ${sourceCount}` : ''}` : `Searched${sourceText ? ` ${sourceText}` : ''}`;
+  const details = getSearchDisplayDetails(usage, sourceCount);
+  const hasDropdown = isError || searchSources.length > 0 || details.length > 0;
+
+  return (
+    <div className="mb-3 ml-1 max-w-full">
+      <button
+        type="button"
+        disabled={!hasDropdown}
+        onClick={() => setIsExpanded(open => !open)}
+        className={`inline-flex items-center gap-0.5 rounded-full px-1 py-0.5 text-sm font-semibold transition-colors disabled:cursor-default ${isError ? 'text-red-400 hover:text-red-500' : isRunning ? 'deepchat-subtle-analyzing text-slate-400 hover:text-slate-500' : 'text-slate-400 hover:text-slate-500'}`}
+      >
+        <span>{title}</span>
+        {!isError && isRunning && <AnimatedSearchDots />}
+        {hasDropdown && (isExpanded ? <ChevronDown className="ml-1 h-3.5 w-3.5" /> : <ChevronRight className="ml-1 h-3.5 w-3.5" />)}
+      </button>
+      {isExpanded && hasDropdown && (
+        <div className="deepchat-analysis-dropdown mt-2 max-w-[min(720px,calc(100vw-3rem))] rounded-2xl border border-slate-100 bg-slate-50/70 px-3 py-2 text-xs font-semibold leading-relaxed text-slate-500 shadow-sm">
+          {searchSources.length > 0 ? (
+            <div className="grid auto-cols-[minmax(190px,240px)] grid-flow-col gap-2 overflow-x-auto pb-1 custom-scrollbar">
+              {searchSources.map((source, index) => (
+                <a
+                  key={`${source.url}-${index}`}
+                  href={source.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="group block h-full overflow-hidden rounded-2xl border border-slate-200 bg-white p-3 text-left no-underline shadow-sm transition hover:border-slate-300 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-950 dark:hover:border-slate-600"
+                >
+                  <span className="mb-2 flex min-w-0 items-center gap-2">
+                    <span className="flex h-6 w-6 shrink-0 items-center justify-center overflow-hidden rounded-full bg-slate-50 ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-700">
+                      <Image src={getSearchFaviconUrl(source)} alt="" width={16} height={16} unoptimized className="h-4 w-4 rounded-sm" />
+                    </span>
+                    <span className="min-w-0 truncate text-xs font-bold text-slate-500 group-hover:text-slate-700 dark:text-slate-300 dark:group-hover:text-slate-100">{source.displayUrl || getSearchHost(source.url)}</span>
+                  </span>
+                  <span className="line-clamp-2 text-sm font-extrabold leading-snug text-slate-800 dark:text-slate-100">{source.title || source.displayUrl || getSearchHost(source.url)}</span>
+                  {source.snippet && <span className="mt-2 line-clamp-3 text-xs font-medium leading-relaxed text-slate-500 dark:text-slate-300">{source.snippet}</span>}
+                </a>
+              ))}
+            </div>
+          ) : (
+            details.map((item) => (
+              <div key={item} className="flex gap-2 py-0.5">
+                <span className={`mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full ${isError ? 'bg-red-300' : 'bg-slate-300'}`} />
+                <span>{item}</span>
+              </div>
+            ))
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function getSearchSourceCount(usage: MCPUsageItem) {
+  const details = usage.details || '';
+  const sourceMatch = details.match(/\b(\d+)\s+sources?\b/i);
+  if (sourceMatch) return sourceMatch[1];
+  const numberMatch = details.match(/\b(\d+)\b/);
+  return numberMatch?.[1] || '';
+}
+
+function getSearchDisplayDetails(usage: MCPUsageItem, sourceCount: string) {
+  if (usage.status === 'error') return [usage.details || 'Search failed.'];
+  if (sourceCount) return [`${sourceCount} result${sourceCount === '1' ? '' : 's'} found.`];
+  if (usage.details) return [usage.details];
+  return [];
+}
+
+function getSearchFaviconUrl(source: SearchSource) {
+  return `https://www.google.com/s2/favicons?domain=${encodeURIComponent(getSearchHost(source.url))}&sz=32`;
+}
+
+function getSearchHost(url: string) {
+  try {
+    return new URL(url).hostname.replace(/^www\./, '');
+  } catch {
+    return url;
+  }
 }
 
 function CodeExecutionUsageSection({ usage }: { usage: MCPUsageItem }) {
@@ -1245,7 +1358,7 @@ const MessageBubble = React.memo(function MessageBubble({ message, onRegenerate,
         )}
 
         {!isUser && hasMCPUsage && (
-          <MCPUsageSection notice={message.mcpNotice} usage={visibleMCPUsage} />
+          <MCPUsageSection notice={message.mcpNotice} usage={visibleMCPUsage} searchSources={message.searchSources} />
         )}
 
         {isUser && message.attachedFiles && message.attachedFiles.length > 0 && (

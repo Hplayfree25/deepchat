@@ -1,9 +1,10 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   BookOpen,
   Check,
+  ChevronDown,
   ChevronRight,
   FileText,
   Globe,
@@ -76,14 +77,12 @@ export function ComposerToolsMenu({
   isUploading,
   webSearchEnabled,
   imageGenerationEnabled,
-  imageAspectRatio,
   uploadShortcut,
   recentFiles,
   onUpload,
   onAttachRecentFile,
   onToggleWebSearch,
   onToggleImageGeneration,
-  onImageAspectRatioChange,
   onClose,
   getFileIcon,
   getDisplayName
@@ -91,11 +90,6 @@ export function ComposerToolsMenu({
   const [activeSubmenu, setActiveSubmenu] = useState<string | null>(null);
   const openLibrary = () => {
     window.dispatchEvent(new Event('openFileLibrary'));
-    onClose();
-  };
-  const selectImageAspectRatio = (aspectRatio: ImageAspectRatio) => {
-    onImageAspectRatioChange?.(aspectRatio);
-    onToggleImageGeneration?.(true);
     onClose();
   };
   const menuItems = [
@@ -113,16 +107,9 @@ export function ComposerToolsMenu({
       submenu: true
     },
     {
-      label: 'Create image',
+      label: 'Image',
       icon: <ImageIcon className="h-[18px] w-[18px]" />,
       active: imageGenerationEnabled,
-      trailing: (
-          <span className="flex shrink-0 items-center gap-1 text-slate-400">
-          <span className="text-xs font-semibold">{getAspectRatioLabel(imageAspectRatio)}</span>
-          <Scan className="h-4 w-4" />
-        </span>
-      ),
-      submenu: true,
       onClick: () => {
         onToggleImageGeneration?.(!imageGenerationEnabled);
         onClose();
@@ -172,7 +159,7 @@ export function ComposerToolsMenu({
           <button
             type="button"
             disabled={item.disabled}
-            onClick={item.submenu && item.label !== 'Create image' ? () => setActiveSubmenu(activeSubmenu === item.label ? null : item.label) : item.onClick}
+            onClick={item.submenu ? () => setActiveSubmenu(activeSubmenu === item.label ? null : item.label) : item.onClick}
             className={`flex h-9 w-full items-center gap-2.5 rounded-xl px-2.5 text-left text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${item.active ? 'bg-slate-100 text-slate-950 dark:bg-slate-800 dark:text-white' : 'hover:bg-slate-100 dark:hover:bg-slate-800'}`}
           >
             <span className="flex h-[18px] w-[18px] shrink-0 items-center justify-center text-slate-700 dark:text-slate-200">{item.icon}</span>
@@ -191,22 +178,6 @@ export function ComposerToolsMenu({
                     getFileIcon={getFileIcon}
                     getDisplayName={getDisplayName}
                   />
-                ) : item.label === 'Create image' ? (
-                  <div className="space-y-1">
-                    {aspectRatioOptions.map(option => (
-                      <button
-                        key={option.value}
-                        type="button"
-                        onClick={() => selectImageAspectRatio(option.value)}
-                        className={`flex h-10 w-full items-center gap-3 rounded-xl px-2.5 text-left text-sm font-medium transition-colors ${imageAspectRatio === option.value ? 'bg-slate-100 text-slate-950 dark:bg-slate-800 dark:text-white' : 'hover:bg-slate-100 dark:hover:bg-slate-800'}`}
-                      >
-                        <span className="flex h-5 w-5 shrink-0 items-center justify-center text-slate-700 dark:text-slate-200">{option.icon}</span>
-                        <span className="min-w-0 flex-1 truncate">{option.label}</span>
-                        {option.hint && <span className="shrink-0 text-xs font-semibold text-slate-400">{option.hint}</span>}
-                        {imageAspectRatio === option.value && <Check className="h-4 w-4 shrink-0 text-blue-500" />}
-                      </button>
-                    ))}
-                  </div>
                 ) : (
                   <MoreMenu onClose={onClose} />
                 )}
@@ -246,29 +217,105 @@ export function SearchToolBadge({ enabled, onDisable }: { enabled?: boolean; onD
   );
 }
 
-export function ImageToolBadge({ enabled, aspectRatio, onDisable }: { enabled?: boolean; aspectRatio: ImageAspectRatio; onDisable?: () => void }) {
+export function ImageToolBadge({ enabled, aspectRatio, onDisable, onAspectRatioChange }: { enabled?: boolean; aspectRatio: ImageAspectRatio; onDisable?: () => void; onAspectRatioChange?: (aspectRatio: ImageAspectRatio) => void }) {
+  const [isOpen, setIsOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const selectedOption = aspectRatioOptions.find(option => option.value === aspectRatio) || aspectRatioOptions[0];
+  const isAspectMenuOpen = Boolean(enabled && isOpen);
+
+  useEffect(() => {
+    if (!isAspectMenuOpen) return;
+    const handlePointerDown = (event: PointerEvent) => {
+      if (containerRef.current && !containerRef.current.contains(event.target as Node)) setIsOpen(false);
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setIsOpen(false);
+    };
+    document.addEventListener('pointerdown', handlePointerDown);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isAspectMenuOpen]);
+
   return (
     <AnimatePresence initial={false}>
       {enabled && (
-        <motion.button
+        <motion.div
           key="image-tool-badge"
-          type="button"
           initial={{ opacity: 0, scale: 0.98 }}
           animate={{ opacity: 1, scale: 1 }}
           exit={{ opacity: 0, scale: 0.98 }}
           transition={{ duration: 0.18, ease: 'easeOut' }}
-          onClick={onDisable}
-          className="group/image-tool inline-flex h-10 shrink-0 items-center gap-2 rounded-full px-2.5 text-sm font-semibold text-fuchsia-600 transition-colors hover:bg-fuchsia-50 dark:text-fuchsia-300 dark:hover:bg-fuchsia-500/15"
-          aria-label="Disable image generation"
-          aria-pressed="true"
+          ref={containerRef}
+          className="relative inline-flex h-10 shrink-0 items-center rounded-full text-sm font-semibold text-blue-600 dark:text-blue-300"
         >
-          <span className="relative h-[18px] w-[18px] shrink-0">
-            <ImageIcon className="absolute inset-0 h-[18px] w-[18px] transition-all duration-150 group-hover/image-tool:scale-75 group-hover/image-tool:opacity-0" strokeWidth={2.25} />
-            <X className="absolute inset-0 h-[18px] w-[18px] scale-75 opacity-0 transition-all duration-150 group-hover/image-tool:scale-100 group-hover/image-tool:opacity-100" strokeWidth={2.35} />
-          </span>
-          <span>Create image</span>
-          <span className="text-xs font-semibold text-slate-400">{getAspectRatioLabel(aspectRatio)}</span>
-        </motion.button>
+          <button
+            type="button"
+            onClick={() => {
+              setIsOpen(false);
+              onDisable?.();
+            }}
+            className="group/image-tool inline-flex h-10 shrink-0 items-center gap-2 rounded-l-full px-2.5 transition-colors hover:bg-blue-50 dark:hover:bg-blue-500/15"
+            aria-label="Disable image generation"
+            aria-pressed="true"
+          >
+            <span className="relative h-[18px] w-[18px] shrink-0">
+              <ImageIcon className="absolute inset-0 h-[18px] w-[18px] transition-all duration-150 group-hover/image-tool:scale-75 group-hover/image-tool:opacity-0" strokeWidth={2.25} />
+              <X className="absolute inset-0 h-[18px] w-[18px] scale-75 opacity-0 transition-all duration-150 group-hover/image-tool:scale-100 group-hover/image-tool:opacity-100" strokeWidth={2.35} />
+            </span>
+            <span>Image</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setIsOpen(open => !open)}
+            className={`inline-flex h-10 shrink-0 items-center gap-1.5 rounded-r-full px-2 pr-2.5 text-slate-700 transition-colors hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800 ${isAspectMenuOpen ? 'bg-slate-100 dark:bg-slate-800' : ''}`}
+            aria-label="Choose image aspect ratio"
+            aria-expanded={isAspectMenuOpen}
+          >
+            <span className="flex h-4 w-4 shrink-0 items-center justify-center text-slate-600 dark:text-slate-300">{selectedOption.icon}</span>
+            <span>{getAspectRatioLabel(aspectRatio)}</span>
+            <motion.span
+              animate={{ rotate: isAspectMenuOpen ? 180 : 0 }}
+              transition={{ type: 'spring', stiffness: 420, damping: 28 }}
+              className="flex h-4 w-4 shrink-0 items-center justify-center"
+            >
+              <ChevronDown className="h-4 w-4" strokeWidth={2.35} />
+            </motion.span>
+          </button>
+          <AnimatePresence>
+            {isAspectMenuOpen && (
+              <motion.div
+                key="image-aspect-menu"
+                initial={{ opacity: 0, y: 8, scale: 0.98 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: 8, scale: 0.98 }}
+                transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
+                className="absolute bottom-full left-0 z-[70] mb-2 w-[min(16rem,calc(100vw-2rem))] origin-bottom-left rounded-2xl border border-slate-200 bg-white p-2 text-slate-800 shadow-2xl shadow-slate-300/35 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:shadow-black/45"
+              >
+                <div className="space-y-1">
+                  {aspectRatioOptions.map(option => (
+                    <button
+                      key={option.value}
+                      type="button"
+                      onClick={() => {
+                        onAspectRatioChange?.(option.value);
+                        setIsOpen(false);
+                      }}
+                      className={`flex h-10 w-full items-center gap-3 rounded-xl px-2.5 text-left text-sm font-medium transition-colors ${aspectRatio === option.value ? 'bg-slate-100 text-slate-950 dark:bg-slate-800 dark:text-white' : 'hover:bg-slate-100 dark:hover:bg-slate-800'}`}
+                    >
+                      <span className="flex h-5 w-5 shrink-0 items-center justify-center text-slate-700 dark:text-slate-200">{option.icon}</span>
+                      <span className="min-w-0 flex-1 truncate">{option.label}</span>
+                      {option.hint && <span className="shrink-0 text-xs font-semibold text-slate-400">{option.hint}</span>}
+                      {aspectRatio === option.value && <Check className="h-4 w-4 shrink-0 text-blue-500" />}
+                    </button>
+                  ))}
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </motion.div>
       )}
     </AnimatePresence>
   );

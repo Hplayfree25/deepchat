@@ -237,6 +237,36 @@ const getSearchSourceEvents = (sources: SearchSource[]) => {
   }];
 };
 
+const getToolRuntimeEvents = (tools: ReturnType<typeof normalizeChatTools>, result: { context: string; sources: SearchSource[] }) => {
+  const searchTools = tools.filter(tool => tool.toolId !== 'url-context');
+  if (searchTools.length === 0) return [];
+  if (result.sources.length > 0) {
+    return [{
+      type: 'deepchat_mcp',
+      id: 'web-search',
+      name: 'Search',
+      status: 'completed',
+      details: `${result.sources.length} source${result.sources.length === 1 ? '' : 's'} found via ${searchTools.map(tool => tool.name).join(', ')}`
+    }];
+  }
+  if (/Web Search unavailable/i.test(result.context)) {
+    return [{
+      type: 'deepchat_mcp',
+      id: 'web-search',
+      name: 'Search',
+      status: 'error',
+      details: result.context.replace(/^Web Search unavailable\s*/i, '').trim() || 'Search did not return usable sources.'
+    }];
+  }
+  return [{
+    type: 'deepchat_mcp',
+    id: 'web-search',
+    name: 'Search',
+    status: 'completed',
+    details: 'Search was requested but no source context was returned.'
+  }];
+};
+
 const getMCPWorkingEvents = (servers: { serverId: string; name: string }[]) => {
   return servers.map(server => ({
     type: 'deepchat_mcp',
@@ -923,7 +953,7 @@ const createAgenticMCPResponse = (requestUrl: string, provider: string, payload:
         for (const event of getMCPStreamEvents(mcpRuntimeResult.usage)) {
           controller.enqueue(encoder.encode(sse(event)));
         }
-        for (const event of getSearchSourceEvents(toolRuntimeResult.sources)) {
+        for (const event of [...getToolRuntimeEvents(tools, toolRuntimeResult), ...getSearchSourceEvents(toolRuntimeResult.sources)]) {
           controller.enqueue(encoder.encode(sse(event)));
         }
         await pipeSseResponse(controller, await callDirect(finalMessages));
@@ -989,7 +1019,7 @@ export async function POST(req: Request) {
     const mcpRuntimeContext = mcpRuntimeResult.context;
     const toolRuntimeResult = skipRuntimeIntegrations ? { context: '', sources: [] as SearchSource[] } : await collectToolRuntimeContextWithSources(runtimeTools, latestUserMessage);
     const runtimeContext = [mcpRuntimeContext, toolRuntimeResult.context].filter(Boolean).join('\n\n');
-    const integrationEvents = [...getMCPStreamEvents(mcpRuntimeResult.usage), ...getSearchSourceEvents(toolRuntimeResult.sources)];
+    const integrationEvents = [...getMCPStreamEvents(mcpRuntimeResult.usage), ...getToolRuntimeEvents(runtimeTools, toolRuntimeResult), ...getSearchSourceEvents(toolRuntimeResult.sources)];
     const usedMCPIds = new Set(mcpRuntimeResult.usage.map(item => item.id));
     const promptMCPServers = runtimeMCPServers.filter(server => usedMCPIds.has(server.serverId));
 
