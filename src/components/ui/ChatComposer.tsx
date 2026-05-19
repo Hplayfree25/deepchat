@@ -134,12 +134,18 @@ export default function ChatComposer({
   const [recentFiles, setRecentFiles] = useState<ComposerRecentFile[]>([]);
   const shortcuts = useShortcutLabels();
   const canSubmit = value.trim().length > 0 || attachedFiles.length > 0;
+  const isToolComposerActive = webSearchEnabled;
 
   useEffect(() => {
     if (!textareaRef.current) return;
     textareaRef.current.style.height = 'auto';
     textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, maxTextareaHeight)}px`;
   }, [maxTextareaHeight, value]);
+
+  useEffect(() => {
+    if (!webSearchEnabled) return;
+    textareaRef.current?.focus();
+  }, [webSearchEnabled]);
 
   useEffect(() => {
     const unsubscribe = subscribeGeneralSettings(settings => {
@@ -333,6 +339,120 @@ export default function ChatComposer({
     return files;
   };
 
+  const toolsButton = (
+    <motion.div layout className="relative flex h-10 shrink-0 items-center justify-center sm:h-11">
+      <input
+        type="file"
+        multiple
+        ref={fileInputRef}
+        className="hidden"
+        onChange={(event) => {
+          uploadFiles(Array.from(event.target.files || []));
+          event.target.value = '';
+        }}
+      />
+      <Tooltip label="Add Files and more" shortcuts={[{ label: '/', tone: 'key' }]} side="bottom" align="start" disabled={isAttachMenuOpen}>
+        <motion.button
+          type="button"
+          disabled={isUploading}
+          onClick={toggleAttachMenu}
+          animate={{ rotate: isAttachMenuOpen ? 45 : 0 }}
+          whileTap={{ scale: 0.92 }}
+          transition={{ type: 'spring', stiffness: 420, damping: 28 }}
+          className={`flex h-10 w-10 items-center justify-center rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-50 sm:h-11 sm:w-11 ${isAttachMenuOpen ? 'bg-slate-100 text-slate-950 dark:bg-slate-800 dark:text-slate-100' : 'text-slate-500 hover:bg-slate-100 hover:text-slate-950 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100'}`}
+          aria-label="Open tools menu"
+          aria-expanded={isAttachMenuOpen}
+        >
+          <Plus className="h-5 w-5" strokeWidth={2.35} />
+        </motion.button>
+      </Tooltip>
+      <AnimatePresence>
+        {isAttachMenuOpen && (
+          <AttachMenu
+            isUploading={isUploading}
+            webSearchEnabled={webSearchEnabled}
+            uploadShortcut={shortcuts.uploadFile}
+            recentFiles={recentFiles}
+            onUpload={openFilePicker}
+            onAttachRecentFile={(file) => {
+              onAttachRecentFile(file);
+              setIsAttachMenuOpen(false);
+            }}
+            onToggleWebSearch={(enabled) => {
+              setIsAttachMenuOpen(false);
+              onToggleWebSearch?.(enabled);
+            }}
+            onClose={() => setIsAttachMenuOpen(false)}
+          />
+        )}
+      </AnimatePresence>
+    </motion.div>
+  );
+
+  const searchToolBadge = (
+    <AnimatePresence initial={false}>
+      {webSearchEnabled && (
+        <motion.button
+          key="search-tool-badge"
+          type="button"
+          initial={{ opacity: 0, scale: 0.98 }}
+          animate={{ opacity: 1, scale: 1 }}
+          exit={{ opacity: 0, scale: 0.98 }}
+          transition={{ duration: 0.18, ease: 'easeOut' }}
+          onClick={() => onToggleWebSearch?.(false)}
+          className="inline-flex h-10 shrink-0 items-center gap-2 rounded-full px-2.5 text-sm font-semibold text-blue-600 transition-colors hover:bg-blue-50 dark:text-blue-300 dark:hover:bg-blue-500/15"
+          aria-label="Disable web search"
+          aria-pressed="true"
+        >
+          <Globe className="h-[18px] w-[18px]" strokeWidth={2.25} />
+          <span>Search</span>
+        </motion.button>
+      )}
+    </AnimatePresence>
+  );
+
+  const textareaField = (
+    <textarea
+      ref={textareaRef}
+      placeholder={placeholder}
+      className={`min-w-0 flex-1 resize-none bg-transparent text-[16px] font-medium leading-snug text-slate-800 outline-none placeholder:text-slate-400 custom-scrollbar dark:text-slate-100 dark:placeholder:text-slate-500 ${isToolComposerActive ? 'min-h-11 px-0 py-1 sm:min-h-12 sm:py-1.5' : 'min-h-10 px-1 py-2.5 sm:min-h-11 sm:py-3'}`}
+      style={{ maxHeight: maxTextareaHeight }}
+      rows={1}
+      value={value}
+      onChange={(event) => onChange(event.target.value)}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter' && !event.shiftKey) {
+          event.preventDefault();
+          submit();
+        }
+      }}
+    />
+  );
+
+  const actionControls = (
+    <motion.div layout className="flex min-w-0 shrink-0 items-center gap-0.5 sm:gap-1">
+      <div className="hidden min-w-0 max-w-[9rem] sm:block lg:max-w-[13rem]">
+        <ModelSelector />
+      </div>
+      {isDictationEnabled && (
+        <IconButton label={isDictating ? 'Stop dictation' : 'Dictate'} tooltip={isDictating ? 'Stop dictation' : 'Dictate'} shortcut={shortcuts.dictation.join('+')} onClick={toggleDictation}>
+          <Mic className={`h-5 w-5 ${isDictating ? 'text-red-500' : ''}`} strokeWidth={2.35} />
+        </IconButton>
+      )}
+      <Tooltip label={isBusy ? 'Stop generating' : 'Send prompt'} shortcuts={isBusy ? [] : [{ label: <CornerDownLeft className="h-3.5 w-3.5" strokeWidth={2.4} />, tone: 'icon' }]} side="bottom" align="end">
+        <button
+          type={isBusy ? 'button' : 'submit'}
+          disabled={isUploading || (!isBusy && !canSubmit)}
+          onClick={isBusy ? onStop : undefined}
+          className={`flex h-10 w-10 items-center justify-center rounded-full text-white transition-all hover:-translate-y-0.5 disabled:translate-y-0 disabled:bg-slate-300 sm:h-11 sm:w-11 ${isBusy ? 'bg-red-500 hover:bg-red-600' : 'bg-slate-950 hover:bg-indigo-600'}`}
+          aria-label={isBusy ? 'Stop generating' : 'Send message'}
+        >
+          {isBusy ? <Square className="h-4 w-4 fill-current" strokeWidth={2.35} /> : <Send className="h-5 w-5" strokeWidth={2.35} />}
+        </button>
+      </Tooltip>
+    </motion.div>
+  );
+
   return (
     <div className="flex w-full flex-col gap-2">
       {attachedFiles.length > 0 && (
@@ -359,7 +479,9 @@ export default function ChatComposer({
         </div>
       )}
 
-      <form
+      <motion.form
+        layout
+        transition={{ layout: { duration: 0.34, ease: [0.33, 1, 0.68, 1] } }}
         ref={composerRef}
         onSubmit={(event) => {
           event.preventDefault();
@@ -391,93 +513,39 @@ export default function ChatComposer({
           event.preventDefault();
           uploadFiles(files);
         }}
-        className={`relative rounded-[1.75rem] border bg-white px-2 py-1.5 shadow-[0_1px_2px_rgb(15_23_42/0.05),0_12px_34px_rgb(15_23_42/0.08)] transition-all focus-within:border-slate-300 focus-within:shadow-[0_2px_6px_rgb(15_23_42/0.06),0_18px_42px_rgb(15_23_42/0.11)] sm:rounded-[2rem] dark:bg-slate-950/95 dark:shadow-2xl dark:shadow-black/25 dark:focus-within:border-indigo-400/60 ${isDraggingFile ? 'border-indigo-400 ring-4 ring-indigo-100 dark:ring-indigo-500/15' : 'border-slate-200 dark:border-slate-700'}`}
+        className={`relative rounded-[1.75rem] border bg-white shadow-[0_1px_2px_rgb(15_23_42/0.05),0_12px_34px_rgb(15_23_42/0.08)] transition-[border-color,box-shadow,padding] duration-[340ms] ease-out focus-within:border-slate-300 focus-within:shadow-[0_2px_6px_rgb(15_23_42/0.06),0_18px_42px_rgb(15_23_42/0.11)] sm:rounded-[2rem] dark:bg-slate-950/95 dark:shadow-2xl dark:shadow-black/25 dark:focus-within:border-indigo-400/60 ${isToolComposerActive ? 'px-4 py-3 shadow-[0_2px_10px_rgb(15_23_42/0.08),0_18px_44px_rgb(15_23_42/0.11)] sm:px-5 sm:py-3.5' : 'px-2 py-1.5'} ${isDraggingFile ? 'border-indigo-400 ring-4 ring-indigo-100 dark:ring-indigo-500/15' : isToolComposerActive ? 'border-blue-200 dark:border-blue-400/35' : 'border-slate-200 dark:border-slate-700'}`}
       >
-        <div className="flex min-h-12 items-center gap-0.5 sm:min-h-14 sm:gap-2">
-          <div className="relative flex h-10 shrink-0 items-center justify-center sm:h-11">
-            <input
-              type="file"
-              multiple
-              ref={fileInputRef}
-              className="hidden"
-              onChange={(event) => {
-                uploadFiles(Array.from(event.target.files || []));
-                event.target.value = '';
-              }}
-            />
-            <Tooltip label="Add Files and more" shortcuts={[{ label: '/', tone: 'key' }]} side="bottom" align="start" disabled={isAttachMenuOpen}>
-              <motion.button
-                type="button"
-                disabled={isUploading}
-                onClick={toggleAttachMenu}
-                animate={{ rotate: isAttachMenuOpen ? 45 : 0 }}
-                whileTap={{ scale: 0.92 }}
-                transition={{ type: 'spring', stiffness: 420, damping: 28 }}
-                className={`flex h-10 w-10 items-center justify-center rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-50 sm:h-11 sm:w-11 ${isAttachMenuOpen ? 'bg-slate-100 text-slate-950 dark:bg-slate-800 dark:text-slate-100' : 'text-slate-500 hover:bg-slate-100 hover:text-slate-950 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100'}`}
-                aria-label="Open tools menu"
-                aria-expanded={isAttachMenuOpen}
-              >
-                <Plus className="h-5 w-5" strokeWidth={2.35} />
-              </motion.button>
-            </Tooltip>
-            <AnimatePresence>
-              {isAttachMenuOpen && (
-                <AttachMenu
-                  isUploading={isUploading}
-                  webSearchEnabled={webSearchEnabled}
-                  uploadShortcut={shortcuts.uploadFile}
-                  recentFiles={recentFiles}
-                  onUpload={openFilePicker}
-                  onAttachRecentFile={(file) => {
-                    onAttachRecentFile(file);
-                    setIsAttachMenuOpen(false);
-                  }}
-                  onToggleWebSearch={onToggleWebSearch}
-                  onClose={() => setIsAttachMenuOpen(false)}
-                />
-              )}
-            </AnimatePresence>
-          </div>
-
-          <textarea
-            ref={textareaRef}
-            placeholder={placeholder}
-            className="min-h-10 min-w-0 flex-1 resize-none bg-transparent px-1 py-2.5 text-[16px] font-medium leading-snug text-slate-800 outline-none placeholder:text-slate-400 custom-scrollbar sm:min-h-11 sm:py-3 dark:text-slate-100 dark:placeholder:text-slate-500"
-            style={{ maxHeight: maxTextareaHeight }}
-            rows={1}
-            value={value}
-            onChange={(event) => onChange(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter' && !event.shiftKey) {
-                event.preventDefault();
-                submit();
-              }
-            }}
-          />
-
-          <div className="flex min-w-0 shrink-0 items-center gap-0.5 sm:gap-1">
-            <div className="hidden min-w-0 max-w-[9rem] sm:block lg:max-w-[13rem]">
-              <ModelSelector />
-            </div>
-            {isDictationEnabled && (
-              <IconButton label={isDictating ? 'Stop dictation' : 'Dictate'} tooltip={isDictating ? 'Stop dictation' : 'Dictate'} shortcut={shortcuts.dictation.join('+')} onClick={toggleDictation}>
-                <Mic className={`h-5 w-5 ${isDictating ? 'text-red-500' : ''}`} strokeWidth={2.35} />
-              </IconButton>
-            )}
-            <Tooltip label={isBusy ? 'Stop generating' : 'Send prompt'} shortcuts={isBusy ? [] : [{ label: <CornerDownLeft className="h-3.5 w-3.5" strokeWidth={2.4} />, tone: 'icon' }]} side="bottom" align="end">
-              <button
-                type={isBusy ? 'button' : 'submit'}
-                disabled={isUploading || (!isBusy && !canSubmit)}
-                onClick={isBusy ? onStop : undefined}
-                className={`flex h-10 w-10 items-center justify-center rounded-full text-white transition-all hover:-translate-y-0.5 disabled:translate-y-0 disabled:bg-slate-300 sm:h-11 sm:w-11 ${isBusy ? 'bg-red-500 hover:bg-red-600' : 'bg-slate-950 hover:bg-indigo-600'}`}
-                aria-label={isBusy ? 'Stop generating' : 'Send message'}
-              >
-                {isBusy ? <Square className="h-4 w-4 fill-current" strokeWidth={2.35} /> : <Send className="h-5 w-5" strokeWidth={2.35} />}
-              </button>
-            </Tooltip>
-          </div>
-        </div>
-      </form>
+        <motion.div
+          layout
+          initial={false}
+          animate={{ minHeight: isToolComposerActive ? 104 : 56 }}
+          transition={{ duration: 0.34, ease: [0.33, 1, 0.68, 1] }}
+          className={`grid grid-cols-[auto_minmax(0,1fr)_auto] overflow-visible ${isToolComposerActive ? 'grid-rows-[minmax(2.75rem,auto)_2.75rem] gap-x-1.5 gap-y-2 sm:gap-x-2' : 'grid-rows-[0rem_3.5rem] gap-x-0.5 sm:gap-x-2'}`}
+        >
+          <motion.div
+            layout
+            transition={{ duration: 0.34, ease: [0.33, 1, 0.68, 1] }}
+            className="col-start-1 row-start-2 flex min-w-0 items-center gap-1.5"
+          >
+            {toolsButton}
+            {searchToolBadge}
+          </motion.div>
+          <motion.div
+            layout
+            transition={{ duration: 0.34, ease: [0.33, 1, 0.68, 1] }}
+            className={`${isToolComposerActive ? 'col-start-1 col-end-4 row-start-1 flex min-w-0 items-start' : 'col-start-2 row-start-2 flex min-w-0 items-center'}`}
+          >
+            {textareaField}
+          </motion.div>
+          <motion.div
+            layout
+            transition={{ duration: 0.34, ease: [0.33, 1, 0.68, 1] }}
+            className="col-start-3 row-start-2 flex items-center justify-end"
+          >
+            {actionControls}
+          </motion.div>
+        </motion.div>
+      </motion.form>
     </div>
   );
 }
