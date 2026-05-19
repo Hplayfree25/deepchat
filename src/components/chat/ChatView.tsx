@@ -15,6 +15,8 @@ import {
 } from '@/lib/chat-generation';
 import { formatClarificationAnswer, isGeneratedClarificationAnswerContent, parseAgentClarification, type AgentClarification, type AgentClarificationAnswer, type AgentClarificationOption } from '@/lib/agent-clarification';
 import { IMAGE_GENERATION_STATUS_TEXTS, getGenerationMode, type GenerationMode } from '@/lib/image-generation';
+import { normalizeImageAspectRatio, type ImageAspectRatio } from '@/lib/image-aspect-ratio';
+import { loadComposerToolState, saveComposerToolState } from '@/lib/composer-tool-state';
 import { AnimatePresence, motion } from 'framer-motion';
 import {
   Copy, ThumbsUp, ThumbsDown, RefreshCcw,
@@ -66,6 +68,8 @@ type ChatMessage = {
   chatIndex?: number;
   attachedFiles?: AttachedFile[];
   webSearchEnabled?: boolean;
+  imageGenerationEnabled?: boolean;
+  imageAspectRatio?: ImageAspectRatio;
   createdAt?: string;
   isStreaming?: boolean;
   isError?: boolean;
@@ -185,13 +189,15 @@ export default function ChatView({ chatId }: { chatId: string }) {
   const [isLoading, setIsLoading] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>([]);
-  const [webSearchEnabled, setWebSearchEnabled] = useState(false);
+  const [webSearchEnabled, setWebSearchEnabled] = useState(() => loadComposerToolState().webSearchEnabled);
+  const [imageGenerationEnabled, setImageGenerationEnabled] = useState(() => loadComposerToolState().imageGenerationEnabled);
+  const [imageAspectRatio, setImageAspectRatio] = useState<ImageAspectRatio>(() => loadComposerToolState().imageAspectRatio);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const composerContentRef = useRef<HTMLDivElement>(null);
   const dotsContainerRef = useRef<HTMLDivElement>(null);
   const initialMsgProcessed = useRef(false);
   const messagesRef = useRef(messages);
-  const sendMessageRef = useRef<((text: string, overrideFiles?: AttachedFile[], overrideWebSearch?: boolean) => void | Promise<void>) | null>(null);
+  const sendMessageRef = useRef<((text: string, overrideFiles?: AttachedFile[], overrideWebSearch?: boolean, overrideImageGeneration?: boolean, overrideImageAspectRatio?: ImageAspectRatio) => void | Promise<void>) | null>(null);
   const [activeUserMsgId, setActiveUserMsgId] = useState<string | null>(null);
   const [activeMobileActionMsgId, setActiveMobileActionMsgId] = useState<string | null>(null);
   const [composerReserve, setComposerReserve] = useState(160);
@@ -227,6 +233,10 @@ export default function ChatView({ chatId }: { chatId: string }) {
       localStorage.setItem(`deepchat-draft-${chatId}`, input);
     }
   }, [input, chatId]);
+
+  useEffect(() => {
+    saveComposerToolState({ webSearchEnabled, imageGenerationEnabled, imageAspectRatio });
+  }, [webSearchEnabled, imageGenerationEnabled, imageAspectRatio]);
 
   useEffect(() => {
     if (activeUserMsgId && dotsContainerRef.current) {
@@ -276,6 +286,8 @@ export default function ChatView({ chatId }: { chatId: string }) {
       const initialMsg = urlParams.get('msg');
       const draftMsg = urlParams.get('draft');
       const initialWebSearch = urlParams.get('web') === '1';
+      const initialImageGeneration = urlParams.get('image') === '1';
+      const initialImageAspectRatio = normalizeImageAspectRatio(urlParams.get('ratio'));
 
       if (!mounted) return;
 
@@ -294,10 +306,13 @@ export default function ChatView({ chatId }: { chatId: string }) {
       } else if (initialMsg !== null && !initialMsgProcessed.current) {
         initialMsgProcessed.current = true;
         window.history.replaceState({}, '', `/chat/${chatId}`);
+        setWebSearchEnabled(initialWebSearch);
+        setImageGenerationEnabled(initialImageGeneration);
+        if (initialImageGeneration) setImageAspectRatio(initialImageAspectRatio);
 
         if (!chat || !chat.messages || chat.messages.length === 0) {
           setTimeout(() => {
-            if (mounted) void sendMessageRef.current?.(initialMsg, chat?.pendingAttachedFiles, initialWebSearch);
+            if (mounted) void sendMessageRef.current?.(initialMsg, chat?.pendingAttachedFiles, initialWebSearch, initialImageGeneration, initialImageAspectRatio);
           }, 0);
         } else {
           setMessages(mergeActiveGeneration(chatId, chat.messages.map(normalizeMessageForDisplay)));
@@ -385,9 +400,11 @@ export default function ChatView({ chatId }: { chatId: string }) {
     };
   }, [chatId]);
 
-  const sendMessage = useCallback(async (text: string, overrideFiles?: AttachedFile[], overrideWebSearch?: boolean) => {
+  const sendMessage = useCallback(async (text: string, overrideFiles?: AttachedFile[], overrideWebSearch?: boolean, overrideImageGeneration?: boolean, overrideImageAspectRatio?: ImageAspectRatio) => {
     const filesToUse = overrideFiles || attachedFiles;
     const useWebSearch = typeof overrideWebSearch === 'boolean' ? overrideWebSearch : webSearchEnabled;
+    const useImageGeneration = typeof overrideImageGeneration === 'boolean' ? overrideImageGeneration : imageGenerationEnabled;
+    const useImageAspectRatio = normalizeImageAspectRatio(overrideImageAspectRatio || imageAspectRatio);
     if ((!text.trim() && filesToUse.length === 0) || isLoading) return;
 
     const userMessage = {
@@ -396,12 +413,14 @@ export default function ChatView({ chatId }: { chatId: string }) {
       content: text.trim(),
       attachedFiles: filesToUse.length > 0 ? [...filesToUse] : undefined,
       webSearchEnabled: useWebSearch,
+      imageGenerationEnabled: useImageGeneration,
+      imageAspectRatio: useImageGeneration ? useImageAspectRatio : undefined,
       createdAt: new Date().toISOString(),
       chatIndex: messagesRef.current.length
     };
 
     const assistantMsgId = (Date.now() + 1).toString();
-    const generationMode = getSelectedGenerationMode();
+    const generationMode = useImageGeneration ? 'image' : getSelectedGenerationMode();
     const assistantMessage = {
       id: assistantMsgId,
       role: 'assistant',
@@ -420,7 +439,6 @@ export default function ChatView({ chatId }: { chatId: string }) {
     setMessages(prev => [...prev, userMessage, assistantMessage]);
     setInput('');
     setAttachedFiles([]);
-    setWebSearchEnabled(false);
     localStorage.removeItem(`deepchat-draft-${chatId}`);
 
     await saveMessage(chatId, userMessage);
@@ -432,7 +450,7 @@ export default function ChatView({ chatId }: { chatId: string }) {
 
     const snapshot = startChatGeneration(chatId, apiMessages, assistantMsgId);
     applyGenerationSnapshot(snapshot);
-  }, [applyGenerationSnapshot, attachedFiles, chatId, isLoading, webSearchEnabled]);
+  }, [applyGenerationSnapshot, attachedFiles, chatId, imageAspectRatio, imageGenerationEnabled, isLoading, webSearchEnabled]);
 
   useEffect(() => {
     sendMessageRef.current = sendMessage;
@@ -756,11 +774,15 @@ export default function ChatView({ chatId }: { chatId: string }) {
               isUploading={isUploading}
               isBusy={isLoading}
               webSearchEnabled={webSearchEnabled}
+              imageGenerationEnabled={imageGenerationEnabled}
+              imageAspectRatio={imageAspectRatio}
               maxTextareaHeight={256}
               onChange={setInput}
               onSubmit={(value) => sendMessage(value)}
               onStop={handleStopGeneration}
               onToggleWebSearch={setWebSearchEnabled}
+              onToggleImageGeneration={setImageGenerationEnabled}
+              onImageAspectRatioChange={setImageAspectRatio}
               onFilesUpload={handleFilesUpload}
               onAttachRecentFile={(file) => setAttachedFiles(prev => prev.some(item => item.name === file.name && item.ext === file.ext) ? prev : [...prev, file])}
               onRemoveFile={(index) => setAttachedFiles(prev => prev.filter((_, itemIndex) => itemIndex !== index))}

@@ -6,6 +6,7 @@ import { publishDeepChatNotification } from '@/lib/notification-settings';
 import { getEnabledToolRuntimeItems, loadToolSettings, shouldUseSmartSearch } from '@/lib/tool-settings';
 import { parseAgentClarification, parseGeneratedClarificationAnswerContent, type AgentClarification } from '@/lib/agent-clarification';
 import { getGenerationMode, stripGeneratedImageMarkdown, type GenerationMode } from '@/lib/image-generation';
+import { normalizeImageAspectRatio, type ImageAspectRatio } from '@/lib/image-aspect-ratio';
 
 interface SearchSource {
   title: string;
@@ -32,6 +33,8 @@ interface ChatApiMessage {
   content?: string;
   attachedFiles?: unknown;
   webSearchEnabled?: boolean;
+  imageGenerationEnabled?: boolean;
+  imageAspectRatio?: ImageAspectRatio;
   [key: string]: unknown;
 }
 
@@ -241,7 +244,7 @@ const formatMessages = (apiMessages: ChatApiMessage[]) => {
     .replace(/`deepchat-analysis-actions:[^`]+`/g, '[analysis action omitted]');
   const latestRealUser = (items: ChatApiMessage[]) => [...items].reverse().find(item => item.role === 'user' && !parseGeneratedClarificationAnswerContent(item.content));
   if (apiMessages.length <= 1) {
-    return apiMessages.map(m => ({ role: m.role, content: sanitizeContent(m.content), attachedFiles: m.attachedFiles, webSearchEnabled: m.webSearchEnabled }));
+    return apiMessages.map(m => ({ role: m.role, content: sanitizeContent(m.content), attachedFiles: m.attachedFiles, webSearchEnabled: m.webSearchEnabled, imageGenerationEnabled: m.imageGenerationEnabled, imageAspectRatio: m.imageAspectRatio }));
   }
 
   const history = apiMessages.slice(0, -1);
@@ -266,7 +269,7 @@ const formatMessages = (apiMessages: ChatApiMessage[]) => {
 
   return [
     { role: 'system', content: sysContent },
-    { role: 'user', content: sanitizeContent(lastMsg.content), attachedFiles: lastMsg.attachedFiles, webSearchEnabled: lastMsg.webSearchEnabled, runtimePromptContent }
+    { role: 'user', content: sanitizeContent(lastMsg.content), attachedFiles: lastMsg.attachedFiles, webSearchEnabled: lastMsg.webSearchEnabled, imageGenerationEnabled: lastMsg.imageGenerationEnabled, imageAspectRatio: lastMsg.imageAspectRatio, runtimePromptContent }
   ];
 };
 
@@ -525,6 +528,7 @@ const CURRENT_MARKET_ANALYSIS_PATTERN = /((stock|stocks|ticker|market|crypto|coi
 const SPREADSHEET_REQUEST_PATTERN = /\b(excel|spreadsheet|workbook|xlsx|sheet|worksheet|table|tabel|lembar kerja|rumus|formula|cashflow|cash flow|arus kas)\b/i;
 
 const getLatestUserMessage = (messages: ChatApiMessage[]) => [...messages].reverse().find(message => message.role === 'user');
+const shouldRequestImageGeneration = (message: ChatApiMessage | undefined) => message?.imageGenerationEnabled === true;
 
 const getRecentConversationContext = (messages: ChatApiMessage[]) => messages.slice(-6).map(message => {
   const role = message.role === 'assistant' ? 'Assistant' : message.role === 'user' ? 'User' : 'System';
@@ -1357,6 +1361,7 @@ const runTask = async (task: ChatGenerationTask) => {
         messages: formattedMessages,
         connectionId: task.connection?.connectionId,
         modelId: task.connection?.id,
+        imageAspectRatio: normalizeImageAspectRatio(latestUserMessage?.imageAspectRatio),
         mcpServers: getEnabledMCPRuntimeServers(),
         tools: getEnabledToolRuntimeItems(toolDecision.useSearch)
       }),
@@ -1405,7 +1410,7 @@ export const startChatGeneration = (chatId: string, apiMessages: ChatApiMessage[
     status: 'running',
     stopRequested: false,
     connection: selectedConnection,
-    generationMode: getGenerationMode(selectedConnection?.id),
+    generationMode: shouldRequestImageGeneration(getLatestUserMessage(apiMessages)) ? 'image' : getGenerationMode(selectedConnection?.id),
     lastEmittedAt: 0,
     pendingEmit: null
   };

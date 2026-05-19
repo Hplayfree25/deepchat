@@ -32,7 +32,8 @@ import {
   type MCPRuntimeUsageItem
 } from '@/lib/mcp-runtime';
 import { buildClarificationInstruction, parseAgentClarification } from '@/lib/agent-clarification';
-import { isGeminiImageModel, isImagenModel, isOpenAIImageModel } from '@/lib/image-generation';
+import { isGeminiImageModel, isImageGenerationModel, isImagenModel, isOpenAIImageModel } from '@/lib/image-generation';
+import { getProviderImageAspectRatio, normalizeImageAspectRatio, type ImageAspectRatio } from '@/lib/image-aspect-ratio';
 import { saveGeneratedImage } from '@/lib/generated-images';
 import fs from 'fs/promises';
 import path from 'path';
@@ -52,6 +53,8 @@ type ChatMessage = {
   role: string;
   content?: string;
   attachedFiles?: AttachedFileInput[];
+  imageGenerationEnabled?: boolean;
+  imageAspectRatio?: ImageAspectRatio;
   [key: string]: unknown;
 };
 
@@ -360,12 +363,20 @@ const getOpenAIImagesUrl = (cleanBaseUrl: string) => (
   cleanBaseUrl ? `${cleanBaseUrl}/v1/images/generations` : 'https://api.openai.com/v1/images/generations'
 );
 
-const getOpenAIImageRequestBody = (model: string, prompt: string) => {
+const getOpenAIImageSize = (model: string, aspectRatio: ImageAspectRatio) => {
+  const isGptImage = /\bgpt-image\b/i.test(model);
+  if (aspectRatio === 'auto') return isGptImage ? 'auto' : '1024x1024';
+  if (aspectRatio === '1:1') return '1024x1024';
+  if (aspectRatio === '3:4' || aspectRatio === '9:16') return isGptImage ? '1024x1536' : '1024x1792';
+  return isGptImage ? '1536x1024' : '1792x1024';
+};
+
+const getOpenAIImageRequestBody = (model: string, prompt: string, aspectRatio: ImageAspectRatio) => {
   const body: Record<string, unknown> = {
     model,
     prompt,
     n: 1,
-    size: '1024x1024'
+    size: getOpenAIImageSize(model, aspectRatio)
   };
   if (!/\bgpt-image\b/i.test(model)) {
     body.response_format = 'b64_json';
@@ -759,6 +770,12 @@ const isChatMessageLike = (message: unknown): message is { role?: string; conten
 
 const getMessageText = (message: { content?: string } | undefined) => typeof message?.content === 'string' ? message.content : '';
 const getRuntimeMessageText = (message: { content?: string; runtimePromptContent?: string } | undefined) => typeof message?.runtimePromptContent === 'string' && message.runtimePromptContent.trim() ? message.runtimePromptContent : getMessageText(message);
+const getLatestUserMessage = (messages: ChatMessage[]) => [...messages].reverse().find((m: unknown) => isChatMessageLike(m) && m.role === 'user') as ChatMessage | undefined;
+const getDefaultImageModel = (provider: string) => {
+  if (provider === 'gemini' || provider === 'vertexai') return 'imagen-4.0-generate-001';
+  if (provider.includes('openai')) return 'gpt-image-1';
+  return '';
+};
 
 const getRouteResponseError = async (response: Response) => {
   try {
@@ -922,7 +939,7 @@ const createAgenticMCPResponse = (requestUrl: string, provider: string, payload:
 
 export async function POST(req: Request) {
   try {
-    const { messages, modelId, connectionId, mcpServers, tools, skipAgentLoop, skipRuntimeIntegrations } = await req.json() as {
+    const { messages, modelId, connectionId, mcpServers, tools, skipAgentLoop, skipRuntimeIntegrations, imageAspectRatio } = await req.json() as {
       messages?: ChatMessage[];
       modelId?: string;
       connectionId?: string;
@@ -930,6 +947,7 @@ export async function POST(req: Request) {
       tools?: unknown;
       skipAgentLoop?: boolean;
       skipRuntimeIntegrations?: boolean;
+      imageAspectRatio?: ImageAspectRatio;
     };
 
     if (!Array.isArray(messages) || (!modelId && !connectionId)) {
@@ -947,9 +965,19 @@ export async function POST(req: Request) {
     const llmSettings = await readLLMSettings();
     const isStream = llmSettings.streamingResponse;
     const cleanBase = getCleanBaseUrl(p, conn.baseUrl);
-    const selectedModel = modelId || conn.model;
+    const latestUser = getLatestUserMessage(messages);
+    const requestedImageGeneration = latestUser?.imageGenerationEnabled === true;
+    const requestedAspectRatio = normalizeImageAspectRatio(imageAspectRatio || latestUser?.imageAspectRatio);
+    const selectedRequestModel = modelId || conn.model;
+    const imageFallbackModel = requestedImageGeneration && !isImageGenerationModel(selectedRequestModel) ? getDefaultImageModel(p) : '';
+    const selectedModel = imageFallbackModel || selectedRequestModel;
+
+    if (requestedImageGeneration && !isImageGenerationModel(selectedModel)) {
+      return NextResponse.json({ error: 'Create image needs an image generation model or a Gemini, Vertex AI, or OpenAI connection.' }, { status: 400 });
+    }
+
     const persona = await getPersona();
-    const latestUserMessage = getRuntimeMessageText([...messages].reverse().find((m: unknown) => isChatMessageLike(m) && m.role === 'user'));
+    const latestUserMessage = getRuntimeMessageText(latestUser);
     const runtimeMCPServers = skipRuntimeIntegrations ? [] : normalizeChatMCPServers(mcpServers);
     const runtimeTools = skipRuntimeIntegrations ? [] : normalizeChatTools(tools);
 
@@ -993,6 +1021,7 @@ export async function POST(req: Request) {
       const ai = new GoogleGenAI(aiOptions);
       const mPath = getGeminiModelPath(selectedModel);
       const prompt = getImageGenerationPrompt(messages);
+      const providerAspectRatio = getProviderImageAspectRatio(requestedAspectRatio);
       let images: GeneratedImageOutput[] = [];
       let text = '';
 
@@ -1003,7 +1032,7 @@ export async function POST(req: Request) {
           config: {
             numberOfImages: 1,
             outputMimeType: 'image/png',
-            aspectRatio: '1:1',
+            ...(providerAspectRatio ? { aspectRatio: providerAspectRatio } : {}),
             includeRaiReason: true,
             enhancePrompt: true
           }
@@ -1018,9 +1047,7 @@ export async function POST(req: Request) {
           config: {
             ...(systemMessage ? { systemInstruction: systemMessage } : {}),
             responseModalities: ['TEXT', 'IMAGE'],
-            imageConfig: {
-              aspectRatio: '1:1'
-            }
+            ...(providerAspectRatio ? { imageConfig: { aspectRatio: providerAspectRatio } } : {})
           }
         });
         text = response.text || '';
@@ -1038,6 +1065,7 @@ export async function POST(req: Request) {
 
     if (p === 'vertexai' && (isImagenModel(selectedModel) || isGeminiImageModel(selectedModel))) {
       const prompt = getImageGenerationPrompt(messages);
+      const providerAspectRatio = getProviderImageAspectRatio(requestedAspectRatio);
       let images: GeneratedImageOutput[] = [];
       let text = '';
 
@@ -1052,7 +1080,7 @@ export async function POST(req: Request) {
             instances: [{ prompt }],
             parameters: {
               sampleCount: 1,
-              aspectRatio: '1:1',
+              ...(providerAspectRatio ? { aspectRatio: providerAspectRatio } : {}),
               includeRaiReason: true,
               outputOptions: {
                 mimeType: 'image/png'
@@ -1076,9 +1104,7 @@ export async function POST(req: Request) {
             ...(systemMessage ? { systemInstruction: { parts: [{ text: systemMessage }] } } : {}),
             generationConfig: {
               responseModalities: ['TEXT', 'IMAGE'],
-              imageConfig: {
-                aspectRatio: '1:1'
-              }
+              ...(providerAspectRatio ? { imageConfig: { aspectRatio: providerAspectRatio } } : {})
             }
           })
         });
@@ -1099,7 +1125,7 @@ export async function POST(req: Request) {
 
     if (isOpenAIImageModel(selectedModel) && p !== 'gemini' && p !== 'vertexai' && p !== 'anthropic') {
       const prompt = getImageGenerationPrompt(messages);
-      let body = getOpenAIImageRequestBody(selectedModel, prompt);
+      let body = getOpenAIImageRequestBody(selectedModel, prompt, requestedAspectRatio);
       let res = await fetch(getOpenAIImagesUrl(cleanBase), {
         method: 'POST',
         headers: {

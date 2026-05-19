@@ -3,21 +3,15 @@
 import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import {
   BookOpen,
-  ChevronRight,
   Code2,
   File as FileIcon,
   FileText,
-  Globe,
   Image as ImageIcon,
   Mic,
-  MoreHorizontal,
-  Paperclip,
-  PenLine,
   Plus,
   CornerDownLeft,
   Send,
   Square,
-  SquareMousePointer,
   Video,
   X
 } from 'lucide-react';
@@ -26,7 +20,9 @@ import { getChats } from '@/app/actions';
 import { isShortcutEvent, useShortcutLabels } from '@/components/shortcuts';
 import ModelSelector from './ModelSelector';
 import Tooltip from './Tooltip';
+import { ComposerToolsMenu, ImageToolBadge, SearchToolBadge } from './ComposerToolsMenu';
 import { getDictationLanguage, loadGeneralSettings, subscribeGeneralSettings } from '@/lib/general-settings';
+import { type ImageAspectRatio } from '@/lib/image-aspect-ratio';
 
 export interface ComposerFile {
   name: string;
@@ -65,12 +61,16 @@ interface ChatComposerProps {
   isUploading?: boolean;
   isBusy?: boolean;
   webSearchEnabled?: boolean;
+  imageGenerationEnabled?: boolean;
+  imageAspectRatio?: ImageAspectRatio;
   placeholder?: string;
   maxTextareaHeight?: number;
   onChange: (value: string) => void;
   onSubmit: (value: string) => void;
   onStop?: () => void;
   onToggleWebSearch?: (enabled: boolean) => void;
+  onToggleImageGeneration?: (enabled: boolean) => void;
+  onImageAspectRatioChange?: (aspectRatio: ImageAspectRatio) => void;
   onFilesUpload: (files: File[]) => void;
   onAttachRecentFile: (file: ComposerFile) => void;
   onRemoveFile: (index: number) => void;
@@ -118,12 +118,16 @@ export default function ChatComposer({
   isUploading = false,
   isBusy = false,
   webSearchEnabled = false,
+  imageGenerationEnabled = false,
+  imageAspectRatio = 'auto',
   placeholder = 'Message DeepChat...',
   maxTextareaHeight = 192,
   onChange,
   onSubmit,
   onStop,
   onToggleWebSearch,
+  onToggleImageGeneration,
+  onImageAspectRatioChange,
   onFilesUpload,
   onAttachRecentFile,
   onRemoveFile
@@ -145,7 +149,7 @@ export default function ChatComposer({
   const [textareaHeight, setTextareaHeight] = useState(44);
   const shortcuts = useShortcutLabels();
   const canSubmit = value.trim().length > 0 || attachedFiles.length > 0;
-  const isToolComposerActive = webSearchEnabled;
+  const isToolComposerActive = webSearchEnabled || imageGenerationEnabled;
   const textareaTop = textareaSlot ? textareaSlot.top + (isToolComposerActive ? 0 : Math.max(0, (textareaSlot.minHeight - textareaHeight) / 2)) : 0;
 
   const measureTextareaSlot = useCallback(() => {
@@ -216,9 +220,9 @@ export default function ChatComposer({
   }, [measureTextareaSlot]);
 
   useEffect(() => {
-    if (!webSearchEnabled) return;
+    if (!isToolComposerActive) return;
     textareaRef.current?.focus();
-  }, [webSearchEnabled]);
+  }, [isToolComposerActive]);
 
   useEffect(() => {
     const unsubscribe = subscribeGeneralSettings(settings => {
@@ -441,9 +445,11 @@ export default function ChatComposer({
       </Tooltip>
       <AnimatePresence>
         {isAttachMenuOpen && (
-          <AttachMenu
+          <ComposerToolsMenu
             isUploading={isUploading}
             webSearchEnabled={webSearchEnabled}
+            imageGenerationEnabled={imageGenerationEnabled}
+            imageAspectRatio={imageAspectRatio}
             uploadShortcut={shortcuts.uploadFile}
             recentFiles={recentFiles}
             onUpload={openFilePicker}
@@ -455,7 +461,14 @@ export default function ChatComposer({
               setIsAttachMenuOpen(false);
               onToggleWebSearch?.(enabled);
             }}
+            onToggleImageGeneration={(enabled) => {
+              setIsAttachMenuOpen(false);
+              onToggleImageGeneration?.(enabled);
+            }}
+            onImageAspectRatioChange={onImageAspectRatioChange}
             onClose={() => setIsAttachMenuOpen(false)}
+            getFileIcon={getComposerFileIcon}
+            getDisplayName={getComposerDisplayName}
           />
         )}
       </AnimatePresence>
@@ -463,25 +476,10 @@ export default function ChatComposer({
   );
 
   const searchToolBadge = (
-    <AnimatePresence initial={false}>
-      {webSearchEnabled && (
-        <motion.button
-          key="search-tool-badge"
-          type="button"
-          initial={{ opacity: 0, scale: 0.98 }}
-          animate={{ opacity: 1, scale: 1 }}
-          exit={{ opacity: 0, scale: 0.98 }}
-          transition={{ duration: 0.18, ease: 'easeOut' }}
-          onClick={() => onToggleWebSearch?.(false)}
-          className="inline-flex h-10 shrink-0 items-center gap-2 rounded-full px-2.5 text-sm font-semibold text-blue-600 transition-colors hover:bg-blue-50 dark:text-blue-300 dark:hover:bg-blue-500/15"
-          aria-label="Disable web search"
-          aria-pressed="true"
-        >
-          <Globe className="h-[18px] w-[18px]" strokeWidth={2.25} />
-          <span>Search</span>
-        </motion.button>
-      )}
-    </AnimatePresence>
+    <div className="flex min-w-0 items-center gap-0.5 sm:gap-1">
+      <SearchToolBadge enabled={webSearchEnabled} onDisable={() => onToggleWebSearch?.(false)} />
+      <ImageToolBadge enabled={imageGenerationEnabled} aspectRatio={imageAspectRatio} onDisable={() => onToggleImageGeneration?.(false)} />
+    </div>
   );
 
   const actionControls = (
@@ -628,154 +626,6 @@ export default function ChatComposer({
   );
 }
 
-function AttachMenu({ isUploading, webSearchEnabled, uploadShortcut, recentFiles, onUpload, onAttachRecentFile, onToggleWebSearch, onClose }: { isUploading?: boolean; webSearchEnabled?: boolean; uploadShortcut: string[]; recentFiles: ComposerRecentFile[]; onUpload: () => void; onAttachRecentFile: (file: ComposerFile) => void; onToggleWebSearch?: (enabled: boolean) => void; onClose: () => void }) {
-  const [activeSubmenu, setActiveSubmenu] = useState<string | null>(null);
-  const openLibrary = () => {
-    window.dispatchEvent(new Event('openFileLibrary'));
-    onClose();
-  };
-
-  const menuItems = [
-    {
-      label: 'Add photos & files',
-      hint: uploadShortcut.join(' + '),
-      icon: <Paperclip className="h-[18px] w-[18px]" />,
-      onClick: onUpload,
-      disabled: isUploading
-    },
-    {
-      label: 'Recent files',
-      icon: <FileText className="h-[18px] w-[18px]" />,
-      trailing: <ChevronRight className="h-4 w-4" />,
-      submenu: true
-    },
-    {
-      label: 'Create image',
-      icon: <ImageIcon className="h-[18px] w-[18px]" />,
-      onClick: onClose
-    },
-    {
-      label: 'Deep research',
-      icon: <BookOpen className="h-[18px] w-[18px]" />,
-      onClick: onClose
-    },
-    {
-      label: 'Web search',
-      icon: <Globe className="h-[18px] w-[18px]" />,
-      active: webSearchEnabled,
-      onClick: () => {
-        onToggleWebSearch?.(!webSearchEnabled);
-        onClose();
-      }
-    },
-    {
-      label: 'More',
-      icon: <MoreHorizontal className="h-[18px] w-[18px]" />,
-      trailing: <ChevronRight className="h-4 w-4" />,
-      submenu: true
-    }
-  ];
-
-  return (
-    <motion.div
-      initial={{ opacity: 0, y: 10, scale: 0.96 }}
-      animate={{ opacity: 1, y: 0, scale: 1 }}
-      exit={{ opacity: 0, y: 10, scale: 0.96 }}
-      transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
-      className="absolute bottom-full left-0 z-50 mb-3 w-[min(14.75rem,calc(100vw-2rem))] origin-bottom-left overflow-visible rounded-2xl border border-slate-200 bg-white p-1 text-slate-800 shadow-2xl shadow-slate-300/35 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:shadow-black/45"
-    >
-      {menuItems.map((item, index) => (
-        <div
-          key={item.label}
-          onMouseEnter={() => setActiveSubmenu(item.submenu ? item.label : null)}
-          onPointerEnter={() => setActiveSubmenu(item.submenu ? item.label : null)}
-          onMouseLeave={() => {
-            if (item.submenu) setActiveSubmenu(null);
-          }}
-          onFocus={() => setActiveSubmenu(item.submenu ? item.label : null)}
-          className={`group/item relative ${index === 1 ? 'mb-1 border-b border-slate-100 pb-1 dark:border-slate-800' : ''}`}
-        >
-          <button
-            type="button"
-            disabled={item.disabled}
-            onClick={item.submenu ? () => setActiveSubmenu(activeSubmenu === item.label ? null : item.label) : item.onClick}
-            className={`flex h-9 w-full items-center gap-2.5 rounded-xl px-2.5 text-left text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${item.active ? 'bg-slate-100 text-slate-950 dark:bg-slate-800 dark:text-white' : 'hover:bg-slate-100 dark:hover:bg-slate-800'}`}
-          >
-            <span className="flex h-[18px] w-[18px] shrink-0 items-center justify-center text-slate-700 dark:text-slate-200">{item.icon}</span>
-            <span className="min-w-0 flex-1 truncate">{item.label}</span>
-            {item.hint && <span className="shrink-0 text-xs font-medium text-slate-400 opacity-0 transition-opacity group-focus-within/item:opacity-100 group-hover/item:opacity-100">{item.hint}</span>}
-            {item.trailing && <span className="shrink-0 text-slate-500">{item.trailing}</span>}
-          </button>
-          {item.submenu && (
-            <div className={`absolute left-full z-[60] w-[min(17rem,calc(100vw-2rem))] pl-2 transition-opacity max-[760px]:bottom-full max-[760px]:left-0 max-[760px]:top-auto max-[760px]:mb-2 max-[760px]:pl-0 ${item.label === 'More' ? 'bottom-0' : 'top-0'} ${activeSubmenu === item.label ? 'pointer-events-auto block opacity-100' : 'pointer-events-none hidden opacity-0 group-focus-within/item:pointer-events-auto group-focus-within/item:block group-focus-within/item:opacity-100 group-hover/item:pointer-events-auto group-hover/item:block group-hover/item:opacity-100'}`}>
-              <div className="rounded-2xl border border-slate-200 bg-white p-2 text-slate-800 shadow-2xl shadow-slate-300/35 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:shadow-black/45">
-                {item.label === 'Recent files' ? (
-                  <>
-                    <button
-                      type="button"
-                      onClick={openLibrary}
-                      className="flex h-9 w-full items-center gap-2 rounded-xl px-1.5 text-left text-sm font-medium transition-colors hover:bg-slate-100 dark:hover:bg-slate-800"
-                    >
-                      <BookOpen className="h-5 w-5 shrink-0 text-slate-700 dark:text-slate-200" />
-                      <span className="min-w-0 flex-1 truncate">Add from library</span>
-                    </button>
-                    <div className="my-2 border-t border-slate-100 dark:border-slate-800" />
-                    <div className="px-1.5 pb-2 text-sm font-medium text-slate-400">Recents</div>
-                    {recentFiles.length > 0 ? (
-                      <div className="max-h-64 overflow-y-auto custom-scrollbar">
-                        {recentFiles.map(file => (
-                          <button
-                            key={`${file.chatId}-${file.name}-${file.ext}`}
-                            type="button"
-                            onClick={() => onAttachRecentFile({ name: file.name, ext: file.ext })}
-                            className="flex w-full min-w-0 items-center gap-2.5 rounded-xl px-1.5 py-2 text-left transition-colors hover:bg-slate-100 dark:hover:bg-slate-800"
-                          >
-                            <span className="flex h-6 w-6 shrink-0 items-center justify-center overflow-hidden rounded bg-slate-50 text-slate-700 ring-1 ring-slate-100 dark:bg-slate-800 dark:text-slate-200 dark:ring-slate-700">
-                              {getComposerFileIcon(file.ext, 'h-4 w-4')}
-                            </span>
-                            <span className="min-w-0 flex-1">
-                              <span className="block truncate text-sm font-medium leading-5">{getComposerDisplayName(file.name)}</span>
-                              <span className="block truncate text-xs font-medium leading-4 text-slate-400">{formatRecentFileTime(file.addedAt)}</span>
-                            </span>
-                          </button>
-                        ))}
-                      </div>
-                    ) : (
-                      <div className="px-2 py-8 text-center text-sm font-semibold text-slate-400">No recent files</div>
-                    )}
-                  </>
-                ) : (
-                  <div className="space-y-1">
-                    <button
-                      type="button"
-                      onClick={onClose}
-                      className="flex h-11 w-full items-center gap-3 rounded-xl px-2.5 text-left text-sm font-medium transition-colors hover:bg-slate-100 dark:hover:bg-slate-800"
-                    >
-                      <SquareMousePointer className="h-5 w-5 shrink-0 text-slate-700 dark:text-slate-200" />
-                      <span className="min-w-0 flex-1 truncate">Agent mode</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={onClose}
-                      className="flex h-11 w-full items-center gap-3 rounded-xl px-2.5 text-left text-sm font-medium transition-colors hover:bg-slate-100 dark:hover:bg-slate-800"
-                    >
-                      <span className="relative flex h-5 w-5 shrink-0 items-center justify-center text-slate-700 dark:text-slate-200">
-                        <PenLine className="h-5 w-5" />
-                        <Plus className="absolute -right-1 -top-1 h-3 w-3 rounded-full bg-white dark:bg-slate-950" />
-                      </span>
-                      <span className="min-w-0 flex-1 truncate">Canvas</span>
-                    </button>
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-        </div>
-      ))}
-    </motion.div>
-  );
-}
-
 function IconButton({ children, disabled, label, tooltip = label, shortcut, active, onClick }: { children: React.ReactNode; disabled?: boolean; label: string; tooltip?: string; shortcut?: string; active?: boolean; onClick?: () => void }) {
   return (
     <Tooltip label={tooltip} shortcuts={shortcut ? [{ label: shortcut, tone: 'muted' }] : []} side="bottom">
@@ -832,9 +682,3 @@ export function getComposerDisplayName(name: string) {
   return name.replace(/^[a-f0-9]{8}-/i, '').replaceAll('_', ' ');
 }
 
-function formatRecentFileTime(value: string) {
-  if (!value) return 'Recently added';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return 'Recently added';
-  return date.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
-}

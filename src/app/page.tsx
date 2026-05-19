@@ -6,6 +6,8 @@ import { AnimatePresence, motion } from 'framer-motion';
 import toast from 'react-hot-toast';
 import { createChat, getChats, uploadFile } from './actions';
 import ChatComposer, { getComposerDisplayName, getComposerFileIcon } from '@/components/ui/ChatComposer';
+import { loadComposerToolState, saveComposerToolState } from '@/lib/composer-tool-state';
+import { type ImageAspectRatio } from '@/lib/image-aspect-ratio';
 import {
   ArrowUpRight,
   BarChart3,
@@ -81,11 +83,17 @@ export default function WelcomePage() {
   const [isUploading, setIsUploading] = useState(false);
   const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>([]);
   const [recentFiles, setRecentFiles] = useState<RecentFile[]>([]);
-  const [webSearchEnabled, setWebSearchEnabled] = useState(false);
+  const [webSearchEnabled, setWebSearchEnabled] = useState(() => loadComposerToolState().webSearchEnabled);
+  const [imageGenerationEnabled, setImageGenerationEnabled] = useState(() => loadComposerToolState().imageGenerationEnabled);
+  const [imageAspectRatio, setImageAspectRatio] = useState<ImageAspectRatio>(() => loadComposerToolState().imageAspectRatio);
 
   useEffect(() => {
     localStorage.setItem('deepchat-draft-new', input);
   }, [input]);
+
+  useEffect(() => {
+    saveComposerToolState({ webSearchEnabled, imageGenerationEnabled, imageAspectRatio });
+  }, [webSearchEnabled, imageGenerationEnabled, imageAspectRatio]);
 
   useEffect(() => {
     let mounted = true;
@@ -148,12 +156,16 @@ export default function WelcomePage() {
     setIsUploading(false);
   };
 
-  const startChat = async (inputMsg?: string, files: AttachedFile[] = attachedFiles, useWebSearch = webSearchEnabled) => {
+  const startChat = async (inputMsg?: string, files: AttachedFile[] = attachedFiles, useWebSearch = webSearchEnabled, useImageGeneration = imageGenerationEnabled, selectedImageAspectRatio = imageAspectRatio) => {
     localStorage.removeItem('deepchat-draft-new');
     const id = await createChat('New Chat', files);
     const query = new URLSearchParams();
     if (inputMsg || files.length > 0) query.set('msg', inputMsg || '');
     if (useWebSearch) query.set('web', '1');
+    if (useImageGeneration) {
+      query.set('image', '1');
+      query.set('ratio', selectedImageAspectRatio);
+    }
     const qString = query.toString();
     router.push(`/chat/${id}${qString ? `?${qString}` : ''}`);
   };
@@ -263,9 +275,13 @@ export default function WelcomePage() {
             attachedFiles={attachedFiles}
             isUploading={isUploading}
             webSearchEnabled={webSearchEnabled}
+            imageGenerationEnabled={imageGenerationEnabled}
+            imageAspectRatio={imageAspectRatio}
             onChange={setInput}
             onSubmit={(value) => startChat(value)}
             onToggleWebSearch={setWebSearchEnabled}
+            onToggleImageGeneration={setImageGenerationEnabled}
+            onImageAspectRatioChange={setImageAspectRatio}
             onFilesUpload={handleFilesUpload}
             onAttachRecentFile={(file) => setAttachedFiles(prev => prev.some(item => item.name === file.name && item.ext === file.ext) ? prev : [...prev, file])}
             onRemoveFile={(index) => setAttachedFiles(prev => prev.filter((_, itemIndex) => itemIndex !== index))}
