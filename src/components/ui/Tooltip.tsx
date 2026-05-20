@@ -13,7 +13,7 @@ type TooltipProps = {
   label: string;
   shortcuts?: TooltipShortcut[];
   children: React.ReactElement;
-  side?: 'top' | 'bottom';
+  side?: 'top' | 'bottom' | 'right';
   align?: 'start' | 'center' | 'end';
   disabled?: boolean;
 };
@@ -26,7 +26,8 @@ const alignClass = {
 
 const sideClass = {
   top: 'bottom-full mb-2',
-  bottom: 'top-full mt-2'
+  bottom: 'top-full mt-2',
+  right: 'left-full ml-2 top-1/2 -translate-y-1/2'
 };
 
 const shortcutClass = {
@@ -36,12 +37,14 @@ const shortcutClass = {
 };
 
 export default function Tooltip({ label, shortcuts = [], children, side = 'bottom', align = 'center', disabled = false }: TooltipProps) {
+  const positionClass = side === 'right' ? sideClass.right : `${sideClass[side]} ${alignClass[align]}`;
+
   return (
-    <span className="group/tooltip relative inline-flex">
+    <span className="deepchat-tooltip group/tooltip relative inline-flex">
       {children}
       {!disabled && (
         <span
-          className={`pointer-events-none absolute z-[80] hidden max-w-[18rem] whitespace-nowrap rounded-lg bg-slate-950 px-3 py-2 text-[13px] font-medium leading-none text-white opacity-0 shadow-xl shadow-slate-950/25 transition-opacity duration-150 group-hover/tooltip:opacity-100 [@media(hover:hover)_and_(pointer:fine)]:inline-flex ${sideClass[side]} ${alignClass[align]}`}
+          className={`deepchat-tooltip-content pointer-events-none absolute z-[80] hidden max-w-[18rem] whitespace-nowrap rounded-lg bg-slate-950 px-3 py-2 text-[13px] font-medium leading-none text-white opacity-0 shadow-xl shadow-slate-950/25 transition-opacity duration-150 group-hover/tooltip:opacity-100 [@media(hover:hover)_and_(pointer:fine)]:inline-flex ${positionClass}`}
           style={{ fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif' }}
         >
           <span className="inline-flex items-center gap-1.5">

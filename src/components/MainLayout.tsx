@@ -5,17 +5,16 @@ import { usePathname, useRouter } from 'next/navigation';
 import dynamic from 'next/dynamic';
 import Image from 'next/image';
 import {
-  Bot, Search, Bell, ChevronDown, Edit3, Folder, Download, Share2, MoreVertical,
+  Bot, Search, Bell, Edit3, Folder, Download, Share2, MoreVertical,
   Settings,
-  Trash2, FileText, User, X, Sparkles
+  Trash2, FileText, User
 } from 'lucide-react';
 import Sidebar from './Sidebar';
-import RightPanel from './RightPanel';
 import { DeepChatWordmarkSvg } from './brand';
 import ModelSelector from './ui/ModelSelector';
 import { isShortcutEvent, ShortcutCombo, useShortcutLabels } from './shortcuts';
 import toast, { Toaster } from 'react-hot-toast';
-import { getChat, deleteChat, shareChat, getUserProfile, createChat } from '@/app/actions';
+import { getChat, deleteChat, shareChat, getUserProfile } from '@/app/actions';
 import {
   addNotificationToInbox,
   clearNotificationInbox,
@@ -108,13 +107,9 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
   const searchInputRef = useRef<HTMLInputElement>(null);
   const notificationRefs = useRef<Array<HTMLDivElement | null>>([]);
   const profileMenuRefs = useRef<Array<HTMLDivElement | null>>([]);
-  const touchStartRef = useRef<{ x: number; y: number } | null>(null);
-  const pointerStartRef = useRef<{ x: number; y: number } | null>(null);
 
   const [isSidebarOpen, setSidebarOpen] = useState(() => loadStoredBoolean('isSidebarOpen', pathname.startsWith('/chat')));
-  const [isRightPanelOpen, setRightPanelOpen] = useState(() => loadStoredBoolean('isRightPanelOpen', pathname.startsWith('/chat')));
   const [isMobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const [isMobileRightPanelOpen, setMobileRightPanelOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isNotificationOpen, setNotificationOpen] = useState(false);
   const [isProfileMenuOpen, setProfileMenuOpen] = useState(false);
@@ -126,76 +121,30 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
     localStorage.setItem('isSidebarOpen', val.toString());
   }, []);
 
-  const handleCreateChat = useCallback(async () => {
-    try {
-      const id = await createChat('New Chat');
-      toast.success('New chat created!');
-      router.push(`/chat/${id}`);
-      setMobileMenuOpen(false);
-    } catch {
-      toast.error('Failed to create chat');
-    }
+  const handleCreateChat = useCallback(() => {
+    localStorage.removeItem('deepchat-draft-new');
+    window.dispatchEvent(new Event('deepchat:new-home-prompt'));
+    router.push('/');
+    setMobileMenuOpen(false);
   }, [router]);
+
+  const handleOpenSearch = useCallback(() => {
+    if (searchInputRef.current) {
+      searchInputRef.current.focus();
+      return;
+    }
+    toast('Search is available in chat view.');
+  }, []);
+
+  const handleOpenActions = useCallback(() => {
+    toast('Action menu is available from the composer tools.');
+  }, []);
 
   const loadProfile = useCallback(() => {
     getUserProfile().then((savedProfile) => {
       setProfile(savedProfile as UserProfile);
     });
   }, []);
-
-  const toggleRightPanel = () => {
-    const val = !isRightPanelOpen;
-    setRightPanelOpen(val);
-    localStorage.setItem('isRightPanelOpen', val.toString());
-  };
-
-  const handleTouchStart = (event: React.TouchEvent<HTMLDivElement>) => {
-    if (event.touches.length !== 1) return;
-    const touch = event.touches[0];
-    touchStartRef.current = { x: touch.clientX, y: touch.clientY };
-  };
-
-  const handleTouchEnd = (event: React.TouchEvent<HTMLDivElement>) => {
-    const start = touchStartRef.current;
-    touchStartRef.current = null;
-    if (!start || event.changedTouches.length !== 1) return;
-    const touch = event.changedTouches[0];
-    const dx = touch.clientX - start.x;
-    const dy = touch.clientY - start.y;
-    if (Math.abs(dx) < 60 || Math.abs(dy) > 90) return;
-
-    if (isMobileRightPanelOpen && dx > 60) {
-      setMobileRightPanelOpen(false);
-      return;
-    }
-
-    if (!isMobileRightPanelOpen && start.x > window.innerWidth - 44 && dx < -60) {
-      setMobileRightPanelOpen(true);
-    }
-  };
-
-  const handlePointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
-    if (!event.isPrimary) return;
-    pointerStartRef.current = { x: event.clientX, y: event.clientY };
-  };
-
-  const handlePointerUp = (event: React.PointerEvent<HTMLDivElement>) => {
-    const start = pointerStartRef.current;
-    pointerStartRef.current = null;
-    if (!start) return;
-    const dx = event.clientX - start.x;
-    const dy = event.clientY - start.y;
-    if (Math.abs(dx) < 60 || Math.abs(dy) > 90) return;
-
-    if (isMobileRightPanelOpen && dx > 60) {
-      setMobileRightPanelOpen(false);
-      return;
-    }
-
-    if (!isMobileRightPanelOpen && start.x > window.innerWidth - 44 && dx < -60) {
-      setMobileRightPanelOpen(true);
-    }
-  };
 
   useEffect(() => {
     const handleOpenSettings = () => setIsSettingsOpen(true);
@@ -205,10 +154,7 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
 
   useEffect(() => {
     const handleOpenFileLibrary = () => {
-      setRightPanelOpen(true);
-      setMobileRightPanelOpen(true);
-      localStorage.setItem('isRightPanelOpen', 'true');
-      toast('File library manager is ready in the Library panel.');
+      toast('Library panel has been removed from chat view.');
     };
     window.addEventListener('openFileLibrary', handleOpenFileLibrary);
     return () => window.removeEventListener('openFileLibrary', handleOpenFileLibrary);
@@ -542,8 +488,8 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
   }
 
   return (
-    <div className="flex h-dvh flex-col overflow-hidden bg-slate-50 font-sans sm:flex-row dark:bg-slate-950" onTouchStart={handleTouchStart} onTouchEnd={handleTouchEnd} onPointerDown={handlePointerDown} onPointerUp={handlePointerUp}>
-      <div className="relative z-20 flex h-[54px] shrink-0 items-center bg-white px-4 border-b border-slate-100/50 dark:border-slate-800/50 dark:bg-slate-950 sm:hidden">
+    <div className="flex h-dvh flex-col overflow-hidden bg-white font-sans sm:flex-row dark:bg-slate-950">
+      <div className="relative z-20 flex h-[54px] shrink-0 items-center bg-white px-4 dark:bg-slate-950 sm:hidden">
         <div className="flex items-center gap-2">
           <button onClick={() => setMobileMenuOpen(true)} className="flex h-[35px] w-[35px] items-center justify-center rounded-[12px] bg-[#efeeee] active:scale-95 transition-transform dark:bg-slate-800/80" aria-label="Open menu">
             <div className="flex flex-col items-start gap-[4px]">
@@ -571,35 +517,15 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
         isMobileOpen={isMobileMenuOpen}
         setMobileOpen={setMobileMenuOpen}
         onOpenSettings={() => setIsSettingsOpen(true)}
+        onOpenSearch={handleOpenSearch}
+        onOpenActions={handleOpenActions}
       />
 
-      <div className={`relative z-10 flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-white shadow-xl shadow-slate-200/50 transition-all duration-500 ease-[cubic-bezier(0.22,1,0.36,1)] sm:my-3 ${isSidebarOpen ? '' : 'sm:ml-3'} ${isRightPanelOpen ? 'sm:mr-0' : 'sm:mr-3'} sm:rounded-3xl sm:border sm:border-slate-100 dark:border-slate-700/80 dark:bg-slate-900 dark:shadow-black/30`}>
+      <div className={`relative z-10 flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden transition-all duration-500 ease-[cubic-bezier(0.22,1,0.36,1)] ${hasActiveChat ? 'bg-white shadow-none sm:m-0 sm:rounded-none sm:border-0 dark:bg-slate-950' : 'bg-white shadow-none sm:m-0 sm:rounded-none sm:border-0'}`}>
 
-        <div className="hidden h-[84px] items-center justify-between border-b border-slate-100 px-4 sm:flex md:px-6 xl:px-8 dark:border-slate-800 dark:bg-slate-950/60">
-          <div className="flex items-center gap-4">
-            {!isSidebarOpen && (
-              <button
-                onClick={() => setSidebarState(true)}
-                className="group relative -ml-2 flex h-10 w-10 items-center justify-center overflow-hidden rounded-full border border-slate-200/80 bg-white text-slate-500 shadow-sm shadow-slate-200/50 transition-all duration-300 hover:-translate-y-0.5 hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-600 hover:shadow-md hover:shadow-indigo-100 active:translate-y-0 active:scale-90 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-500 dark:shadow-black/20 dark:hover:border-indigo-500/40 dark:hover:bg-slate-800 dark:hover:text-indigo-400"
-                aria-label="Open sidebar"
-              >
-                <span className="absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-white/70 to-transparent transition-transform duration-700 group-hover:translate-x-full dark:via-white/10" />
-                <span className="relative flex h-5 w-5 flex-col justify-center gap-1.5">
-                  <span className="h-0.5 w-5 origin-left rounded-full bg-current transition-transform duration-300 group-hover:translate-x-0.5 group-hover:rotate-6" />
-                  <span className="h-0.5 w-3.5 rounded-full bg-current transition-all duration-300 group-hover:w-5 group-hover:translate-x-0.5" />
-                  <span className="h-0.5 w-5 origin-left rounded-full bg-current transition-transform duration-300 group-hover:translate-x-0.5 group-hover:-rotate-6" />
-                </span>
-              </button>
-            )}
-            {!isSidebarOpen && (
-              <button
-                className="flex h-8 items-center text-slate-800 transition-all duration-200 hover:scale-[1.02] active:scale-[0.98]"
-                onClick={() => router.push('/')}
-              >
-                <DeepChatWordmarkSvg className="h-8 w-[120px]" />
-              </button>
-            )}
-          </div>
+        {hasActiveChat && (
+        <div className="hidden">
+          <div className="flex min-w-0 items-center gap-4" />
 
           <div className="mx-6 max-w-2xl flex-1 xl:mx-12">
             <div className="relative group">
@@ -648,9 +574,10 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
             </div>
           </div>
         </div>
+        )}
 
         {hasActiveChat ? (
-          <div className="hidden sm:flex items-center justify-between px-6 py-3 border-b border-slate-50 bg-slate-50/30 dark:border-slate-800 dark:bg-slate-800/60">
+          <div className="hidden">
             <div className="flex items-center gap-2 text-sm text-slate-500">
               {folderName ? (
                 <>
@@ -697,40 +624,6 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
 
         {children}
 
-      </div>
-
-      <div className={`hidden lg:flex flex-col bg-white rounded-3xl m-3 border border-slate-100 shadow-xl shadow-slate-200/50 transition-all duration-300 ease-in-out z-10 dark:border-slate-800 dark:bg-slate-900 dark:shadow-black/30 ${isRightPanelOpen ? 'w-[340px] opacity-100' : 'w-0 opacity-0 overflow-hidden border-none m-0 ml-3'}`}>
-        <div className="flex-1 overflow-y-auto custom-scrollbar p-5 space-y-6">
-          <RightPanel hasActiveChat={hasActiveChat} />
-        </div>
-      </div>
-
-      <button
-        onClick={toggleRightPanel}
-        className="hidden lg:flex absolute top-1/2 right-0 -translate-y-1/2 -translate-x-1/2 z-20 bg-white border border-slate-200 shadow-xl rounded-full p-2 text-slate-400 hover:text-indigo-600 hover:shadow-indigo-100 transition-all"
-      >
-        <ChevronDown className={`w-5 h-5 transition-transform duration-300 ${isRightPanelOpen ? 'rotate-90' : '-rotate-90'}`} />
-      </button>
-
-      <div className={`fixed inset-0 z-50 lg:hidden ${isMobileRightPanelOpen ? 'pointer-events-auto' : 'pointer-events-none'}`}>
-        <div
-          className={`absolute inset-0 bg-slate-900/50 backdrop-blur-sm transition-opacity duration-300 ${isMobileRightPanelOpen ? 'opacity-100' : 'opacity-0'}`}
-          onClick={() => setMobileRightPanelOpen(false)}
-        />
-        <aside className={`absolute right-0 top-0 flex h-full w-[min(90vw,360px)] flex-col overflow-hidden rounded-l-3xl border-l border-slate-100 bg-white shadow-2xl transition-transform duration-300 ease-out ${isMobileRightPanelOpen ? 'translate-x-0' : 'translate-x-[110%]'}`}>
-          <div className="flex h-16 shrink-0 items-center justify-between border-b border-slate-100 px-4">
-            <div className="flex items-center gap-2 text-sm font-extrabold text-slate-800">
-              <Sparkles className="h-4 w-4 text-indigo-500" />
-              Quick Actions
-            </div>
-            <button onClick={() => setMobileRightPanelOpen(false)} className="rounded-full p-2 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700" aria-label="Close quick actions">
-              <X className="h-5 w-5" />
-            </button>
-          </div>
-          <div className="flex-1 overflow-y-auto p-4 custom-scrollbar">
-            <RightPanel hasActiveChat={hasActiveChat} />
-          </div>
-        </aside>
       </div>
 
       <ModelSelector renderTrigger={false} mobileOnly />

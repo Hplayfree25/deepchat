@@ -3,14 +3,15 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import Image from 'next/image';
-import { getChats, createChat, togglePinChat, archiveChat, deleteChat } from '@/app/actions';
+import { getChats, togglePinChat, archiveChat, deleteChat } from '@/app/actions';
 import toast from 'react-hot-toast';
 import {
-  Bot, Plus, Home, Compass, MessageSquare, LayoutTemplate,
+  Bot, Plus, Compass, MessageSquare, LayoutTemplate,
   Book, Puzzle, ChevronDown, Star, Pin, X, MoreVertical, Archive, Trash2, Settings, FileText
 } from 'lucide-react';
 import { DeepChatWordmarkSvg } from './brand';
-import { ShortcutCombo, useShortcutLabels } from './shortcuts';
+import { useShortcutLabels } from './shortcuts';
+import Tooltip from './ui/Tooltip';
 
 interface SidebarProps {
   isOpen: boolean;
@@ -18,6 +19,8 @@ interface SidebarProps {
   isMobileOpen: boolean;
   setMobileOpen: (val: boolean) => void;
   onOpenSettings: () => void;
+  onOpenSearch: () => void;
+  onOpenActions: () => void;
 }
 
 interface ChatItem {
@@ -32,7 +35,7 @@ const loadStoredBoolean = (key: string, fallback: boolean) => {
   return saved !== null ? saved === 'true' : fallback;
 };
 
-export default function Sidebar({ isOpen, setIsOpen, isMobileOpen, setMobileOpen, onOpenSettings }: SidebarProps) {
+export default function Sidebar({ isOpen, setIsOpen, isMobileOpen, setMobileOpen, onOpenSettings, onOpenSearch, onOpenActions }: SidebarProps) {
   const shortcuts = useShortcutLabels();
   const [chats, setChats] = useState<ChatItem[]>([]);
   const [showAllRecent, setShowAllRecent] = useState(false);
@@ -70,15 +73,11 @@ export default function Sidebar({ isOpen, setIsOpen, isMobileOpen, setMobileOpen
     };
   }, [pathname]);
 
-  const handleNewChat = async () => {
-    try {
-      const id = await createChat('New Chat');
-      toast.success('New chat created!');
-      router.push(`/chat/${id}`);
-      setMobileOpen(false);
-    } catch {
-      toast.error('Failed to create chat');
-    }
+  const handleNewChat = () => {
+    localStorage.removeItem('deepchat-draft-new');
+    window.dispatchEvent(new Event('deepchat:new-home-prompt'));
+    router.push('/');
+    setMobileOpen(false);
   };
 
   const handleAction = async (action: string, id: string) => {
@@ -157,87 +156,115 @@ export default function Sidebar({ isOpen, setIsOpen, isMobileOpen, setMobileOpen
 
   return (
     <>
-      <div className={`hidden min-h-0 origin-left overflow-hidden sm:flex flex-col bg-[#0f172a] text-slate-300 transition-all duration-500 ease-[cubic-bezier(0.22,1,0.36,1)] will-change-[width,opacity,transform,margin] ${isOpen ? 'w-[248px] xl:w-[260px] m-3 translate-x-0 scale-100 rounded-3xl opacity-100 shadow-xl' : 'w-0 m-0 -translate-x-5 scale-[0.98] opacity-0 pointer-events-none'}`}>
-        <div className="p-4 flex items-center justify-between">
-          <div className="flex items-center gap-2 cursor-pointer" onClick={() => router.push('/')}>
-            <div className="w-8 h-8 bg-indigo-600 rounded-2xl flex items-center justify-center">
-              <Bot className="w-5 h-5 text-white" />
-            </div>
-            <DeepChatWordmarkSvg className="h-7 w-[105px] text-white transition-all duration-200 group-hover:scale-[1.02]" />
+      <div className={`hidden min-h-0 shrink-0 flex-col items-center bg-white py-2 text-black transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] sm:flex dark:bg-slate-950 dark:text-white ${isOpen ? 'w-0 overflow-hidden opacity-0 pointer-events-none' : 'w-[44px] opacity-100'}`}>
+        <Tooltip label="Open sidebar" side="right" align="center">
+          <button
+            type="button"
+            onClick={() => setIsOpen(true)}
+            className="group/collapse-logo mb-6 flex h-8 w-8 items-center justify-center rounded-xl text-black transition-all hover:bg-black/5 active:scale-95 dark:text-white dark:hover:bg-white/10"
+            aria-label="Open sidebar"
+          >
+            <Image src="/icon.svg" alt="DeepChat" width={28} height={28} priority className="h-7 w-7 transition-opacity group-hover/collapse-logo:opacity-0" />
+            <IconifyFill icon="mynaui:sidebar-solid" className="absolute h-5 w-5 opacity-0 transition-opacity group-hover/collapse-logo:opacity-100" />
+          </button>
+        </Tooltip>
+
+        <div className="flex flex-1 flex-col items-center">
+          <div className="flex flex-col items-center gap-4">
+            <CollapsedSidebarButton label="New Chat" shortcuts={[{ label: shortcuts.newChat.join('+'), tone: 'muted' }]} onClick={handleNewChat}>
+              <IconifyFill icon="streamline-flex:pencil-square-solid" className="h-[18px] w-[18px]" />
+            </CollapsedSidebarButton>
+            <CollapsedSidebarButton label="Search" shortcuts={[{ label: shortcuts.search.join('+'), tone: 'muted' }]} onClick={onOpenSearch}>
+              <IconifyFill icon="material-symbols:search-rounded" />
+            </CollapsedSidebarButton>
+            <CollapsedSidebarButton label="Action menu" onClick={onOpenActions}>
+              <IconifyFill icon="material-symbols:action-key" />
+            </CollapsedSidebarButton>
           </div>
+
+          <div className="mt-auto flex flex-col items-center gap-4 pb-1">
+            <CollapsedSidebarButton label="Settings" onClick={handleOpenSettings}>
+              <IconifyFill icon="material-symbols:settings-rounded" />
+            </CollapsedSidebarButton>
+            <button
+              type="button"
+              onClick={handleOpenSettings}
+              className="flex h-8 w-8 items-center justify-center rounded-full transition-transform hover:scale-105 active:scale-95"
+              aria-label="Profile"
+            >
+              <Image src={profile.avatar} alt="User" width={28} height={28} unoptimized className="h-7 w-7 rounded-full object-cover" />
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div className={`hidden min-h-0 origin-left overflow-hidden sm:flex flex-col bg-[#efeeee] text-black transition-all duration-500 ease-[cubic-bezier(0.22,1,0.36,1)] will-change-[width,opacity,transform] ${isOpen ? 'w-[248px] xl:w-[250px] translate-x-0 opacity-100 shadow-[18px_0_45px_rgba(15,23,42,0.06)] rounded-br-[2.35rem]' : 'w-0 -translate-x-4 opacity-0 pointer-events-none'}`}>
+        <div className="flex h-14 shrink-0 items-center justify-between px-3">
+          <button type="button" className="flex min-w-0 items-center" onClick={() => router.push('/')} aria-label="DeepChat home">
+            <span className="truncate text-[25px] font-medium leading-none tracking-normal text-black">DeepChat</span>
+          </button>
           <button
             onClick={() => setIsOpen(false)}
-            className="group flex h-9 w-9 items-center justify-center rounded-2xl bg-white/5 text-slate-400 transition-all duration-300 hover:bg-white/10 hover:text-white active:scale-90"
+            className="flex h-8 w-8 items-center justify-center rounded-xl text-black transition-colors hover:bg-black/5 active:scale-95"
             aria-label="Close sidebar"
           >
-            <span className="relative h-5 w-5 transition-transform duration-300 group-hover:rotate-90">
-              <span className="absolute left-1/2 top-1/2 h-0.5 w-5 -translate-x-1/2 -translate-y-1/2 rotate-45 rounded-full bg-current transition-all duration-300 group-hover:w-4" />
-              <span className="absolute left-1/2 top-1/2 h-0.5 w-5 -translate-x-1/2 -translate-y-1/2 -rotate-45 rounded-full bg-current transition-all duration-300 group-hover:w-4" />
-            </span>
+            <IconifyFill icon="mynaui:sidebar-solid" className="h-5 w-5" />
           </button>
         </div>
 
-        <div className="px-4 py-2">
-          <button onClick={handleNewChat} className="w-full flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white py-2.5 px-4 rounded-2xl font-medium transition-colors shadow-lg shadow-indigo-600/20">
-            <Plus className="w-5 h-5" />
-            New Chat
-            <span className="ml-auto"><ShortcutCombo keys={shortcuts.newChat} tone="dark" /></span>
-          </button>
-        </div>
-
-        <div className="flex-1 overflow-y-auto overflow-x-hidden custom-scrollbar py-2">
-          <div className="px-3 space-y-1">
-            <NavItem icon={<Home className="w-5 h-5" />} label="Home" onClick={() => router.push('/')} />
-            <NavItem icon={<Compass className="w-5 h-5" />} label="Explore" badge="New" />
-            <NavItem icon={<MessageSquare className="w-5 h-5" />} label="Threads" />
-            <NavItem icon={<LayoutTemplate className="w-5 h-5" />} label="Templates" />
-            <NavItem icon={<Book className="w-5 h-5" />} label="Knowledge Base" />
-            <NavItem icon={<Puzzle className="w-5 h-5" />} label="Integrations" />
+        <div className="shrink-0 px-3 pb-4 pt-3">
+          <div className="space-y-2">
+            <ExpandedSidebarMenuItem label="New Chat" icon="streamline-flex:pencil-square-solid" onClick={handleNewChat} />
+            <ExpandedSidebarMenuItem label="Library" icon="solar:library-bold-duotone" onClick={() => window.dispatchEvent(new Event('openFileLibrary'))} />
+            <ExpandedSidebarMenuItem label="Images" icon="material-symbols:image-rounded" onClick={() => toast('Images are available from the composer image tool.')} />
+            <ExpandedSidebarMenuItem label="Project" icon="solar:folder-bold" onClick={() => toast('Projects are coming soon.')} />
           </div>
+        </div>
 
-          <div className="mt-6 px-3">
-            <div 
-              className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2 px-3 flex justify-between items-center cursor-pointer hover:text-slate-300"
-              onClick={togglePinned}
-            >
-              Pinned
-              <ChevronDown className={`w-3 h-3 transition-transform ${isPinnedOpen ? '' : '-rotate-90'}`} />
-            </div>
+        <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-3 pb-4 custom-scrollbar">
+          <button
+            type="button"
+            className="flex h-8 w-full items-center gap-1.5 text-left text-[16px] font-normal leading-none text-[#8f8989] transition-colors hover:text-black"
+            onClick={togglePinned}
+          >
+            <span>Pin chat</span>
+            <ChevronDown className={`h-3.5 w-3.5 transition-transform ${isPinnedOpen ? '' : '-rotate-90'}`} strokeWidth={1.75} />
+          </button>
+          <div>
             {isPinnedOpen && (
-              <div className="space-y-0.5">
+              <div className="space-y-1">
                 {pinnedChats.map((chat) => (
-                  <ChatMenuItem 
-                    key={chat.id} 
+                  <ExpandedChatItem
+                    key={chat.id}
                     chat={chat}
                     active={pathname === `/chat/${chat.id}`}
-                    icon={<Star className="w-4 h-4 flex-shrink-0 text-yellow-500" />}
                     onAction={handleAction}
                     onClick={() => router.push(`/chat/${chat.id}`)}
                   />
                 ))}
                 {pinnedChats.length === 0 && (
-                  <div className="text-xs text-slate-500 px-3 py-1">No pinned chats</div>
+                  <div className="px-1 py-1 text-sm font-medium text-[#aaa4a4]">No pinned chats</div>
                 )}
               </div>
             )}
           </div>
 
-          <div className="mt-6 px-3 mb-6">
-            <div 
-              className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2 px-3 flex justify-between items-center cursor-pointer hover:text-slate-300"
+          <div className={isPinnedOpen ? 'mt-3' : 'mt-0'}>
+            <button
+              type="button"
+              className="flex h-8 w-full items-center gap-1.5 text-left text-[16px] font-normal leading-none text-[#8f8989] transition-colors hover:text-black"
               onClick={toggleRecent}
             >
-              Recent Conversations
-              <ChevronDown className={`w-3 h-3 transition-transform ${isRecentOpen ? '' : '-rotate-90'}`} />
-            </div>
+              <span>Recent</span>
+              <ChevronDown className={`h-3.5 w-3.5 transition-transform ${isRecentOpen ? '' : '-rotate-90'}`} strokeWidth={1.75} />
+            </button>
             {isRecentOpen && (
-              <div className="space-y-0.5">
+              <div className="space-y-1">
                 {visibleRecent.map((chat) => (
-                  <ChatMenuItem 
-                    key={chat.id} 
+                  <ExpandedChatItem
+                    key={chat.id}
                     chat={chat}
                     active={pathname === `/chat/${chat.id}`}
-                    icon={<Image src={profile.avatar} width={20} height={20} unoptimized className="w-5 h-5 rounded-full border border-slate-700 flex-shrink-0 object-cover" alt="" />}
                     onAction={handleAction}
                     onClick={() => router.push(`/chat/${chat.id}`)}
                   />
@@ -246,22 +273,18 @@ export default function Sidebar({ isOpen, setIsOpen, isMobileOpen, setMobileOpen
                 {unpinnedChats.length > 4 && (
                   <button 
                     onClick={() => setShowAllRecent(!showAllRecent)}
-                    className="w-full text-left px-3 py-2 text-xs font-semibold text-indigo-400 hover:text-indigo-300 transition-colors mt-1"
+                    className="mt-1 w-full rounded-xl px-1 py-2 text-left text-sm font-medium text-[#8f8989] transition-colors hover:text-black"
                   >
                     {showAllRecent ? 'Show less' : `Show ${unpinnedChats.length - 4} more`}
                   </button>
                 )}
                 
                 {unpinnedChats.length === 0 && (
-                  <div className="text-xs text-slate-500 px-3 py-2">No recent chats</div>
+                  <div className="px-1 py-2 text-sm font-medium text-[#aaa4a4]">No recent chats</div>
                 )}
               </div>
             )}
           </div>
-        </div>
-        
-        <div className="p-4 border-t border-slate-800">
-           {renderProfile()}
         </div>
       </div>
 
@@ -286,7 +309,6 @@ export default function Sidebar({ isOpen, setIsOpen, isMobileOpen, setMobileOpen
               </button>
               
               <div className="space-y-1">
-                <NavItem icon={<Home className="w-5 h-5" />} label="Home" onClick={() => { router.push('/'); setMobileOpen(false); }} />
                 <NavItem icon={<Compass className="w-5 h-5" />} label="Explore" />
                 <NavItem icon={<MessageSquare className="w-5 h-5" />} label="Threads" />
                 <NavItem icon={<LayoutTemplate className="w-5 h-5" />} label="Templates" />
@@ -358,6 +380,107 @@ function NavItem({ icon, label, badge, onClick }: { icon: React.ReactNode, label
       </div>
       {badge && <span className="bg-indigo-600 text-white text-[10px] font-bold px-2 py-0.5 rounded-full">{badge}</span>}
     </button>
+  );
+}
+
+function CollapsedSidebarButton({ children, label, shortcuts = [], onClick }: { children: React.ReactNode; label: string; shortcuts?: Array<{ label: string; tone: 'muted' }>; onClick: () => void }) {
+  return (
+    <Tooltip label={label} shortcuts={shortcuts} side="right" align="center">
+      <button
+        type="button"
+        onClick={onClick}
+        className="flex h-8 w-8 items-center justify-center rounded-xl text-black/80 transition-all hover:bg-black/5 hover:text-black active:scale-95 dark:text-white/80 dark:hover:bg-white/10 dark:hover:text-white"
+        aria-label={label}
+      >
+        {children}
+      </button>
+    </Tooltip>
+  );
+}
+
+function ExpandedSidebarMenuItem({ icon, label, onClick }: { icon: string; label: string; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="group flex h-8 w-full items-center gap-2.5 rounded-xl px-1.5 text-left text-black/90 transition-all hover:bg-black/5 hover:text-black active:scale-[0.99]"
+    >
+      <IconifyFill icon={icon} className="h-[18px] w-[18px] shrink-0 transition-transform group-hover:scale-105" />
+      <span className="truncate text-[20px] font-medium leading-none tracking-normal">{label}</span>
+    </button>
+  );
+}
+
+function IconifyFill({ icon, className = 'h-5 w-5' }: { icon: string; className?: string }) {
+  return (
+    <span
+      aria-hidden="true"
+      className={`${className} bg-current`}
+      style={{
+        WebkitMaskImage: `url("https://api.iconify.design/${icon}.svg")`,
+        maskImage: `url("https://api.iconify.design/${icon}.svg")`,
+        WebkitMaskRepeat: 'no-repeat',
+        maskRepeat: 'no-repeat',
+        WebkitMaskPosition: 'center',
+        maskPosition: 'center',
+        WebkitMaskSize: 'contain',
+        maskSize: 'contain'
+      }}
+    />
+  );
+}
+
+function ExpandedChatItem({ chat, active, onAction, onClick }: { chat: ChatItem; active?: boolean; onAction: (action: string, id: string) => void; onClick?: () => void }) {
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (menuRef.current && !menuRef.current.contains(event.target as Node)) setMenuOpen(false);
+    }
+    if (menuOpen) document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [menuOpen]);
+
+  return (
+    <div className="relative" ref={menuRef}>
+      <div
+        className={`group flex h-8 w-full items-center justify-between gap-2 rounded-xl px-1.5 text-left transition-colors ${active ? 'bg-black/5 text-black' : 'text-black/90 hover:bg-black/5 hover:text-black'}`}
+      >
+        <button
+          type="button"
+          onClick={onClick}
+          className="min-w-0 flex-1 truncate text-left text-[16px] font-normal leading-none"
+        >
+          {chat.title}
+        </button>
+        <button
+          type="button"
+          onClick={(event) => {
+            event.stopPropagation();
+            setMenuOpen(open => !open);
+          }}
+          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-[#8f8989] opacity-0 transition-all hover:bg-black/5 hover:text-black group-hover:opacity-100"
+          aria-label={`Open ${chat.title} menu`}
+        >
+          <MoreVertical className="h-4 w-4" strokeWidth={1.75} />
+        </button>
+      </div>
+
+      {menuOpen && (
+        <div className="absolute right-0 top-8 z-50 w-32 overflow-hidden rounded-xl border border-black/5 bg-white py-1 shadow-xl shadow-black/10">
+          <button onClick={(e) => { e.stopPropagation(); setMenuOpen(false); onAction('pin', chat.id); }} className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs font-medium text-black transition-colors hover:bg-black/5">
+            <Pin className="h-3.5 w-3.5" /> {chat.pinned ? 'Unpin' : 'Pin'}
+          </button>
+          <button onClick={(e) => { e.stopPropagation(); setMenuOpen(false); onAction('archive', chat.id); }} className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs font-medium text-black transition-colors hover:bg-black/5">
+            <Archive className="h-3.5 w-3.5" /> Archive
+          </button>
+          <button onClick={(e) => { e.stopPropagation(); setMenuOpen(false); onAction('delete', chat.id); }} className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs font-medium text-red-600 transition-colors hover:bg-red-50">
+            <Trash2 className="h-3.5 w-3.5" /> Delete
+          </button>
+        </div>
+      )}
+    </div>
   );
 }
 

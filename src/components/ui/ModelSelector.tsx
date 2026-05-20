@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Bot, CheckCircle2, ChevronDown, Database, Settings, Sparkles, ArrowRight } from 'lucide-react';
+import { Bot, CheckCircle2, ChevronDown, Database, Settings, Sparkles, ArrowRight, X } from 'lucide-react';
 import { useShortcutLabels } from '@/components/shortcuts';
 import Tooltip from '@/components/ui/Tooltip';
 import { motion, AnimatePresence, type PanInfo } from 'framer-motion';
@@ -121,12 +121,12 @@ export default function ModelSelector({ renderTrigger = true, mobileOnly = false
           type="button"
           onClick={() => setIsOpen(open => !open)}
           className={desktopOnly
-            ? "flex items-center text-[15px] font-medium text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200 transition-colors px-1"
+            ? "flex h-8 max-w-[5.75rem] items-center justify-center rounded-full px-2 text-[13px] font-medium text-[#202020] transition-colors hover:bg-black/5 dark:text-slate-200 dark:hover:bg-white/10 lg:max-w-[6.75rem]"
             : "flex h-10 max-w-full items-center gap-1.5 rounded-full px-2 text-slate-400 transition-colors hover:bg-slate-100 hover:text-indigo-600 dark:hover:bg-slate-800 sm:max-w-[9rem] lg:max-w-[13rem]"}
           aria-label="Select model"
         >
           {!desktopOnly && <Sparkles className="h-5 w-5 shrink-0" strokeWidth={2.35} />}
-          <span className={desktopOnly ? "block min-w-0 truncate" : "hidden min-w-0 truncate text-xs font-bold sm:block"}>
+          <span className={desktopOnly ? "block min-w-0 truncate leading-none" : "hidden min-w-0 truncate text-xs font-bold sm:block"}>
             {selectedModel.name || selectedModel.id}
           </span>
           {!desktopOnly && <ChevronDown className={`h-3.5 w-3.5 shrink-0 transition-transform ${isOpen ? 'rotate-180' : ''}`} />}
@@ -238,9 +238,6 @@ function ModelMenu({ currentModel, onClose, onSelect, onOpenSettings }: {
   const visibleModels = categoryModels.length > 0
     ? categoryModels.find(category => category.category === activeCategoryName)?.models || []
     : flatModels;
-  const modelGridRows = visibleModels.length <= 3 ? 'grid-rows-1' : visibleModels.length <= 6 ? 'grid-rows-2' : 'grid-rows-3';
-  const bodyMaxHeight = categoryModels.length > 0 ? 'max-h-[calc(100%-8.5rem)] sm:max-h-[56vh]' : 'max-h-[calc(100%-6.25rem)] sm:max-h-[70vh]';
-
   const selectProvider = (conn: Connection) => {
     setActiveProvider(conn.id);
     fetchModelsFor(conn);
@@ -378,112 +375,174 @@ function ModelMenu({ currentModel, onClose, onSelect, onOpenSettings }: {
 
   return (
     <>
-      <div className="fixed inset-0 z-40" />
-      <div ref={desktopPanelRef} className="fixed bottom-[calc(10rem+env(safe-area-inset-bottom))] left-1/2 z-50 hidden max-h-[min(64vh,32rem)] w-[min(40rem,calc(100vw-3rem))] -translate-x-1/2 overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-2xl shadow-slate-300/40 sm:block">
-        <div className="flex justify-center pt-2.5 sm:hidden">
-          <div className="h-1.5 w-28 rounded-full bg-slate-100/80" />
-        </div>
-        <div className="flex items-center justify-between gap-3 px-6 pb-4 pt-5 sm:border-b sm:border-slate-100 sm:px-5 sm:py-3">
-          <div className="min-w-0 rounded-full bg-[#e3e3e3] px-5 py-2.5 sm:rounded-none sm:bg-transparent sm:px-0 sm:py-0">
-            <p className="text-[28px] font-black leading-none text-black sm:text-sm sm:text-slate-800">Select Model</p>
-            <p className="hidden truncate text-xs font-medium text-slate-400 sm:block">{activeConnection ? `${activeConnection.name} / ${activeConnection.provider}` : 'Choose a configured provider'}</p>
-          </div>
-          <button type="button" onClick={onOpenSettings} className="hidden shrink-0 items-center gap-2 rounded-full border border-slate-200 px-3 py-2 text-xs font-bold text-slate-600 transition-colors hover:border-indigo-200 hover:text-indigo-600 sm:flex">
-            <Settings className="h-4 w-4" />
-            API
-          </button>
-        </div>
-
-        {loading ? (
-          <ModelMenuSkeleton />
-        ) : connections.length === 0 ? (
-          <div className="flex h-72 flex-col items-center justify-center px-6 text-center">
-            <Database className="mb-3 h-9 w-9 text-slate-300" />
-            <p className="text-sm font-extrabold text-slate-700">No API Connected</p>
-            <p className="mt-1 text-xs font-medium text-slate-400">Add a connection before choosing a model.</p>
-            <button type="button" onClick={onOpenSettings} className="mt-4 rounded-full bg-indigo-600 px-5 py-2.5 text-sm font-bold text-white shadow-md shadow-indigo-200 transition-colors hover:bg-indigo-700">
-              Configure API
-            </button>
-          </div>
-        ) : (
-          <div className={`${bodyMaxHeight} no-scrollbar mx-0 overflow-y-auto rounded-t-[2.75rem] bg-[#e3e3e3] p-6 pt-5 sm:m-0 sm:rounded-none sm:bg-transparent sm:p-4`}>
-            <div onWheel={scrollHorizontally} className="no-scrollbar flex items-center gap-0 overflow-x-auto overscroll-contain rounded-full bg-[#c7c4c4] px-3 py-3 sm:gap-2 sm:rounded-none sm:bg-transparent sm:px-0 sm:py-0 sm:pb-3">
-              {displayConnections.map(conn => {
-                const isActive = conn.id === activeProvider;
-                return (
-                  <button
-                    type="button"
-                    key={conn.id}
-                    onClick={() => selectProvider(conn)}
-                    className={`flex min-w-28 shrink-0 items-center justify-center border-r border-black/80 px-4 py-0 text-center transition-all last:border-r-0 sm:min-w-[190px] sm:justify-start sm:gap-3 sm:rounded-2xl sm:border sm:px-3 sm:py-3 sm:text-left ${isActive ? 'text-black sm:border-indigo-200 sm:bg-indigo-55 sm:text-indigo-700' : 'text-black hover:text-slate-700 sm:border-slate-200 sm:text-slate-600 sm:hover:border-slate-300 sm:hover:bg-slate-55'}`}
-                  >
-                    <div className={`hidden h-9 w-9 shrink-0 items-center justify-center rounded-xl sm:flex ${isActive ? 'bg-white text-indigo-600' : 'bg-slate-50 text-slate-400'}`}>
-                      <Bot className="h-5 w-5" />
-                    </div>
-                    <div className="min-w-0">
-                      <p className="truncate text-[28px] font-black leading-none sm:text-sm sm:font-extrabold">{getProviderLabel(conn)}</p>
-                      <p className="hidden truncate text-[11px] font-semibold opacity-70 sm:block">{conn.provider}</p>
-                    </div>
-                  </button>
-                );
-              })}
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        onClick={onClose}
+        className="fixed inset-0 z-40 hidden bg-white/90 sm:block"
+      />
+      <motion.div
+        ref={desktopPanelRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label="Select Model"
+        initial={{ opacity: 0, y: 18, scale: 0.98 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        exit={{ opacity: 0, y: 16, scale: 0.985 }}
+        transition={{ duration: 0.24, ease: [0.22, 1, 0.36, 1] }}
+        className="deepchat-model-selector-light fixed left-1/2 top-1/2 z-50 hidden h-[min(58vh,30rem)] w-[min(88vw,60rem)] -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-[2.15rem] border border-[#e6dfdf] bg-white sm:block"
+      >
+        <div className="flex h-full flex-col px-6 pb-6 pt-5 lg:px-7 lg:pb-7 lg:pt-6">
+          <div className="mb-5 flex shrink-0 items-start justify-between gap-5">
+            <div className="min-w-0">
+              <h2 className="text-[34px] font-medium leading-none tracking-normal text-black lg:text-[38px]">Select Model</h2>
+              <p className="mt-2 text-sm font-medium text-[#8e8888]">
+                {activeConnection ? `${activeConnection.name || activeConnection.provider} models` : 'Choose a configured provider'}
+              </p>
             </div>
+            <div className="flex shrink-0 items-center gap-2">
+              <button
+                type="button"
+                onClick={onOpenSettings}
+                className="flex h-10 items-center gap-2 rounded-full bg-[#f4f1f1] px-3.5 text-sm font-semibold text-black transition-colors hover:bg-[#ece8e8]"
+              >
+                <Settings className="h-4 w-4" />
+                API
+              </button>
+              <button
+                type="button"
+                onClick={onClose}
+                className="flex h-10 w-10 items-center justify-center rounded-full bg-[#f4f1f1] text-black transition-colors hover:bg-[#ece8e8]"
+                aria-label="Close model selector"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+          </div>
 
-            {categoryModels.length > 0 && (
-              <div onWheel={scrollHorizontally} className="hidden gap-2 overflow-x-auto overscroll-contain py-3 no-scrollbar sm:flex sm:border-y sm:border-slate-100">
-                {categoryModels.map(category => {
-                  const isActive = category.category === activeCategoryName;
-                  return (
-                    <button
-                      type="button"
-                      key={category.category}
-                      onClick={() => setActiveCategories(prev => ({ ...prev, [activeProvider]: category.category }))}
-                      className={`shrink-0 rounded-full border px-3 py-2 text-xs font-extrabold transition-colors ${isActive ? 'border-indigo-200 bg-indigo-55 text-indigo-700' : 'border-slate-200 text-slate-505 hover:border-slate-300 hover:text-slate-700'}`}
-                    >
-                      {category.category}
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-
-            <div className="pt-3">
-              {fetchingModels[activeProvider] ? (
-                <ModelGridSkeleton />
-              ) : visibleModels.length > 0 ? (
-                <div onWheel={scrollHorizontally} className={`no-scrollbar grid grid-flow-col auto-cols-[9.25rem] grid-rows-4 gap-x-8 gap-y-4 overflow-x-auto overscroll-contain pb-2 sm:auto-cols-[minmax(240px,1fr)] ${modelGridRows}`}>
-                  {visibleModels.map(model => {
-                    const isSelected = currentModel.id === model.id && currentModel.connectionId === activeProvider;
+          {loading ? (
+            <div className="min-h-0 flex-1 overflow-hidden rounded-[1.65rem] bg-[#f5f2f2] p-4">
+              <ModelMenuSkeleton />
+            </div>
+          ) : connections.length === 0 ? (
+            <div className="flex min-h-0 flex-1 flex-col items-center justify-center rounded-[1.65rem] bg-[#f7f4f4] px-6 text-center">
+              <Database className="mb-4 h-10 w-10 text-[#b7b0b0]" />
+              <p className="text-lg font-semibold text-black">No API Connected</p>
+              <p className="mt-2 text-sm font-medium text-[#8e8888]">Add a connection before choosing a model.</p>
+              <button type="button" onClick={onOpenSettings} className="mt-6 rounded-full bg-black px-5 py-3 text-sm font-semibold text-white transition-colors hover:bg-[#2a2a2a]">
+                Configure API
+              </button>
+            </div>
+          ) : (
+            <div className="grid min-h-0 flex-1 grid-cols-[15rem_minmax(0,1fr)] gap-5">
+              <aside className="flex min-h-0 flex-col rounded-[1.65rem] bg-[#f5f2f2] p-4 shadow-inner shadow-white">
+                <div className="mb-3 flex shrink-0 items-center justify-between">
+                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#9b9595]">Providers</p>
+                  <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-[#8d8787]">{displayConnections.length}</span>
+                </div>
+                <div className="no-scrollbar min-h-0 flex-1 space-y-2 overflow-y-auto pr-1">
+                  {displayConnections.map(conn => {
+                    const isActive = conn.id === activeProvider;
                     return (
                       <button
                         type="button"
-                        key={model.id}
-                        onClick={() => onSelect(model.id, model.name || model.id, activeProvider)}
-                        className={`flex min-h-8 items-center justify-center gap-2 rounded-full border-0 bg-[#c7c4c4] px-3 py-2 text-center text-black transition-all sm:min-h-16 sm:justify-between sm:rounded-2xl sm:border sm:bg-transparent sm:text-left ${isSelected ? 'ring-2 ring-black/20 sm:border-indigo-200 sm:bg-indigo-50 sm:text-indigo-700 sm:ring-0' : 'hover:bg-[#bbb8b8] sm:border-slate-200 sm:text-slate-700 sm:hover:border-indigo-200 sm:hover:bg-slate-55'}`}
+                        key={conn.id}
+                        onClick={() => selectProvider(conn)}
+                        className={`flex w-full items-center gap-2.5 rounded-[1.25rem] px-3 py-3 text-left transition-all ${isActive ? 'bg-white text-black shadow-lg shadow-black/5' : 'text-[#7e7777] hover:bg-white/70 hover:text-black'}`}
                       >
-                        <div className="min-w-0">
-                          <p className="truncate text-lg font-medium leading-none sm:text-sm sm:font-extrabold">{model.name || model.id}</p>
-                          <p className="hidden truncate text-[11px] font-medium text-slate-400 sm:block">{model.id}</p>
-                        </div>
-                        <div className="flex shrink-0 items-center gap-2">
-                          {model.badge && (
-                            <span className="rounded-full bg-[#806f6f] px-2 py-1 text-[10px] font-bold text-white shadow-sm sm:bg-white sm:text-[9px] sm:font-extrabold sm:uppercase sm:tracking-wide sm:text-indigo-600">{model.badge}</span>
-                          )}
-                          {isSelected && <CheckCircle2 className="hidden h-4 w-4 text-indigo-500 sm:block" />}
-                        </div>
+                        <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full ${isActive ? 'bg-[#efeeee]' : 'bg-white'}`}>
+                          <Bot className="h-4 w-4" />
+                        </span>
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-base font-semibold leading-tight">{getProviderLabel(conn)}</span>
+                          <span className="mt-1 block truncate text-xs font-medium text-[#9b9595]">{conn.provider}</span>
+                        </span>
+                        {isActive && <CheckCircle2 className="h-4 w-4 shrink-0 text-black" />}
                       </button>
                     );
                   })}
                 </div>
-              ) : (
-                <div className="flex h-36 items-center justify-center rounded-2xl bg-slate-50 text-sm font-bold text-slate-400">
-                  No models available
+              </aside>
+
+              <section className="flex min-h-0 flex-col">
+                <div className="mb-3 flex shrink-0 items-center justify-between gap-4">
+                  <div className="min-w-0">
+                    <p className="truncate text-xl font-semibold text-black">{activeConnection ? getProviderLabel(activeConnection) : 'Models'}</p>
+                    <p className="mt-0.5 text-sm font-medium text-[#9b9595]">{visibleModels.length} available models</p>
+                  </div>
+                  {currentModel.id && (
+                    <div className="hidden max-w-[18rem] rounded-full bg-[#f5f2f2] px-4 py-2 text-sm font-medium text-[#7f7878] lg:block">
+                      <span className="text-[#aaa3a3]">Current</span> {currentModel.name || currentModel.id}
+                    </div>
+                  )}
                 </div>
-              )}
+
+                <div className="mb-3 shrink-0">
+                  <p className="mb-2 text-xs font-semibold uppercase tracking-[0.16em] text-[#9b9595]">Categories</p>
+                  <div onWheel={scrollHorizontally} className="no-scrollbar flex gap-2 overflow-x-auto overscroll-contain pb-1">
+                    {categoryModels.length > 0 ? categoryModels.map(category => {
+                      const isActive = category.category === activeCategoryName;
+                      return (
+                        <button
+                          type="button"
+                          key={category.category}
+                          onClick={() => setActiveCategories(prev => ({ ...prev, [activeProvider]: category.category }))}
+                          className={`shrink-0 rounded-full px-4 py-2 text-sm font-semibold transition-colors ${isActive ? 'model-selector-invert bg-black text-white' : 'bg-[#f5f2f2] text-[#7f7878] hover:bg-[#ece8e8] hover:text-black'}`}
+                        >
+                          {category.category}
+                        </button>
+                      );
+                    }) : (
+                      <span className="model-selector-invert rounded-full bg-black px-4 py-2 text-sm font-semibold text-white">All Models</span>
+                    )}
+                  </div>
+                </div>
+
+                <div className="min-h-0 flex-1 overflow-hidden rounded-[1.65rem] bg-[#faf8f8] p-3">
+                  {fetchingModels[activeProvider] ? (
+                    <ModelGridSkeleton />
+                  ) : visibleModels.length > 0 ? (
+                    <div className="custom-scrollbar grid max-h-full grid-cols-2 gap-2.5 overflow-y-auto pr-1 xl:grid-cols-3">
+                      {visibleModels.map(model => {
+                        const isSelected = currentModel.id === model.id && currentModel.connectionId === activeProvider;
+                        return (
+                          <button
+                            type="button"
+                            key={model.id}
+                            onClick={() => onSelect(model.id, model.name || model.id, activeProvider)}
+                            className={`group flex min-h-[5.75rem] flex-col justify-between rounded-[1.15rem] border p-3 text-left transition-all ${isSelected ? 'border-black bg-white shadow-lg shadow-black/5' : 'border-transparent bg-white/75 hover:-translate-y-0.5 hover:bg-white hover:shadow-lg hover:shadow-black/5'}`}
+                          >
+                            <span className="flex items-start justify-between gap-3">
+                              <span className="min-w-0">
+                                <span className="block truncate text-sm font-semibold text-black">{model.name || model.id}</span>
+                                <span className="mt-1 block truncate text-xs font-medium text-[#9b9595]">{model.id}</span>
+                              </span>
+                              {isSelected && <CheckCircle2 className="h-5 w-5 shrink-0 text-black" />}
+                            </span>
+                            <span className="mt-4 flex items-center justify-between gap-3">
+                              <span className="rounded-full bg-[#f1eeee] px-3 py-1 text-xs font-semibold text-[#8a8383]">
+                                {activeCategoryName || 'Model'}
+                              </span>
+                              {model.badge && (
+                                <span className="model-selector-invert rounded-full bg-black px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-white">{model.badge}</span>
+                              )}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div className="flex h-full items-center justify-center rounded-[1.5rem] bg-white text-sm font-semibold text-[#9b9595]">
+                      No models available
+                    </div>
+                  )}
+                </div>
+              </section>
             </div>
-          </div>
-        )}
-      </div>
+          )}
+        </div>
+      </motion.div>
     </>
   );
 }

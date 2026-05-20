@@ -370,6 +370,129 @@ html[data-appearance="dark"] .hover\:border-indigo-300:hover {
   border-color: rgb(129 140 248 / 0.55) !important;
 }
 
+.deepchat-home-light,
+html.dark .deepchat-home-light,
+html[data-appearance="dark"] .deepchat-home-light,
+html.dark .deepchat-home-light .bg-white,
+html[data-appearance="dark"] .deepchat-home-light .bg-white {
+  background-color: #ffffff !important;
+  color: #000000 !important;
+}
+
+.deepchat-home-light form,
+html.dark .deepchat-home-light form,
+html[data-appearance="dark"] .deepchat-home-light form {
+  background-color: #efeeee !important;
+}
+
+.deepchat-home-light form button,
+.deepchat-home-light form textarea,
+.deepchat-home-light form input,
+html.dark .deepchat-home-light form button,
+html.dark .deepchat-home-light form textarea,
+html.dark .deepchat-home-light form input,
+html[data-appearance="dark"] .deepchat-home-light form button,
+html[data-appearance="dark"] .deepchat-home-light form textarea,
+html[data-appearance="dark"] .deepchat-home-light form input {
+  color: #202020 !important;
+}
+
+.deepchat-home-light form textarea,
+.deepchat-home-light form input,
+html.dark .deepchat-home-light form textarea,
+html.dark .deepchat-home-light form input,
+html[data-appearance="dark"] .deepchat-home-light form textarea,
+html[data-appearance="dark"] .deepchat-home-light form input {
+  background-color: transparent !important;
+}
+
+.deepchat-home-light form textarea::placeholder,
+.deepchat-home-light form input::placeholder,
+html.dark .deepchat-home-light form textarea::placeholder,
+html.dark .deepchat-home-light form input::placeholder,
+html[data-appearance="dark"] .deepchat-home-light form textarea::placeholder,
+html[data-appearance="dark"] .deepchat-home-light form input::placeholder {
+  color: #b4b4b4 !important;
+}
+
+.deepchat-chat-view,
+html.dark .deepchat-chat-view,
+html[data-appearance="dark"] .deepchat-chat-view {
+  background-color: #ffffff !important;
+  color: #000000 !important;
+}
+
+.deepchat-chat-view .prose,
+.deepchat-chat-view .prose p,
+.deepchat-chat-view .prose li,
+html.dark .deepchat-chat-view .prose,
+html.dark .deepchat-chat-view .prose p,
+html.dark .deepchat-chat-view .prose li,
+html[data-appearance="dark"] .deepchat-chat-view .prose,
+html[data-appearance="dark"] .deepchat-chat-view .prose p,
+html[data-appearance="dark"] .deepchat-chat-view .prose li {
+  color: #000000 !important;
+  font-size: 18px;
+  line-height: 1.35;
+}
+
+@media (min-width: 640px) {
+  .deepchat-chat-view .prose,
+  .deepchat-chat-view .prose p,
+  .deepchat-chat-view .prose li,
+  html.dark .deepchat-chat-view .prose,
+  html.dark .deepchat-chat-view .prose p,
+  html.dark .deepchat-chat-view .prose li,
+  html[data-appearance="dark"] .deepchat-chat-view .prose,
+  html[data-appearance="dark"] .deepchat-chat-view .prose p,
+  html[data-appearance="dark"] .deepchat-chat-view .prose li {
+    font-size: 17px;
+  }
+}
+
+html.dark .deepchat-home-light .text-blue-600,
+html[data-appearance="dark"] .deepchat-home-light .text-blue-600 {
+  color: #2563eb !important;
+}
+
+.deepchat-tooltip-content,
+.deepchat-tooltip-content span,
+html.dark .deepchat-tooltip-content,
+html.dark .deepchat-tooltip-content span,
+html[data-appearance="dark"] .deepchat-tooltip-content,
+html[data-appearance="dark"] .deepchat-tooltip-content span {
+  color: #ffffff !important;
+}
+
+.deepchat-tooltip-content .text-slate-400,
+html.dark .deepchat-tooltip-content .text-slate-400,
+html[data-appearance="dark"] .deepchat-tooltip-content .text-slate-400 {
+  color: #94a3b8 !important;
+}
+
+.deepchat-model-selector-light,
+html.dark .deepchat-model-selector-light,
+html[data-appearance="dark"] .deepchat-model-selector-light {
+  background-color: #ffffff !important;
+  box-shadow: 0 28px 68px -48px rgb(15 23 42 / 0.34) !important;
+  color: #000000 !important;
+  color-scheme: light;
+}
+
+html.dark .deepchat-model-selector-light.bg-white,
+html[data-appearance="dark"] .deepchat-model-selector-light.bg-white {
+  background-color: #ffffff !important;
+}
+
+.deepchat-model-selector-light .model-selector-invert,
+.deepchat-model-selector-light .model-selector-invert *,
+html.dark .deepchat-model-selector-light .model-selector-invert,
+html.dark .deepchat-model-selector-light .model-selector-invert *,
+html[data-appearance="dark"] .deepchat-model-selector-light .model-selector-invert,
+html[data-appearance="dark"] .deepchat-model-selector-light .model-selector-invert * {
+  color: #ffffff !important;
+}
+
 html.dark .group:hover .group-hover\:bg-white,
 html[data-appearance="dark"] .group:hover .group-hover\:bg-white {
   background-color: #243047 !important;

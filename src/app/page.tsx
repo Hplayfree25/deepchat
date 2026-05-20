@@ -2,103 +2,90 @@
 
 import React, { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { AnimatePresence, motion } from 'framer-motion';
+import { motion } from 'framer-motion';
 import toast from 'react-hot-toast';
-import { createChat, getChats, uploadFile } from './actions';
-import ChatComposer, { getComposerDisplayName, getComposerFileIcon } from '@/components/ui/ChatComposer';
-import { defaultComposerToolState, loadComposerToolState, saveComposerToolState } from '@/lib/composer-tool-state';
+import { createChat, getUserProfile, uploadFile } from './actions';
+import ChatComposer from '@/components/ui/ChatComposer';
+import { defaultComposerToolState, saveComposerToolState } from '@/lib/composer-tool-state';
 import { type ImageAspectRatio } from '@/lib/image-aspect-ratio';
-import {
-  ArrowUpRight,
-  BarChart3,
-  Grid2X2,
-  Image as ImageIcon,
-  Lightbulb,
-  PenLine,
-} from 'lucide-react';
 
 interface AttachedFile {
   name: string;
   ext: string;
 }
 
-interface RecentFile extends AttachedFile {
-  chatId: string;
-  chatTitle: string;
-  addedAt: string;
+interface UserProfile {
+  name?: string;
 }
 
-interface ChatMessage {
-  attachedFiles?: AttachedFile[];
-  createdAt?: string;
-}
-
-interface ChatSummary {
-  id: string;
-  title?: string;
-  createdAt?: string;
-  pendingAttachedFiles?: AttachedFile[];
-  messages?: ChatMessage[];
-}
-
-const quickPrompts = [
-  {
-    icon: Lightbulb,
-    title: 'Brainstorm ideas',
-    desc: 'for a project',
-    prompt: 'Help me brainstorm practical ideas for a project.'
-  },
-  {
-    icon: PenLine,
-    title: 'Write content',
-    desc: 'blog or social',
-    prompt: 'Draft polished content for a blog or social post.'
-  },
-  {
-    icon: BarChart3,
-    title: 'Analyze data',
-    desc: 'and trends',
-    prompt: 'Analyze this data and identify the key trends.'
-  },
-  {
-    icon: ImageIcon,
-    title: 'Create images',
-    desc: 'from a prompt',
-    prompt: 'Help me create a clear image prompt.'
-  },
-  {
-    icon: Grid2X2,
-    title: 'More',
-    desc: 'tools',
-    prompt: 'Show me useful ways to get started with DeepChat.'
-  }
+const homeHeadlines = [
+  (name: string) => `Hello ${name}, What can I help you today?`,
+  () => 'Bring your ideas with our programs',
+  () => 'Step first to a Agent AI',
+  () => 'Turn your questions into clear answers',
+  () => 'Build something useful with DeepChat',
+  () => 'Explore smarter ways to get work done',
+  () => 'Start a new thought with DeepChat'
 ];
+
+const pickHeadlineIndex = (currentIndex?: number) => {
+  const nextIndex = Math.floor(Math.random() * homeHeadlines.length);
+  if (typeof currentIndex !== 'number' || homeHeadlines.length < 2 || nextIndex !== currentIndex) return nextIndex;
+  return (nextIndex + 1) % homeHeadlines.length;
+};
 
 export default function WelcomePage() {
   const router = useRouter();
   const [input, setInput] = useState('');
   const [isUploading, setIsUploading] = useState(false);
   const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>([]);
-  const [recentFiles, setRecentFiles] = useState<RecentFile[]>([]);
+  const [profileName, setProfileName] = useState('Guest');
+  const [headlineIndex, setHeadlineIndex] = useState(0);
   const [webSearchEnabled, setWebSearchEnabled] = useState(defaultComposerToolState.webSearchEnabled);
   const [imageGenerationEnabled, setImageGenerationEnabled] = useState(defaultComposerToolState.imageGenerationEnabled);
   const [imageAspectRatio, setImageAspectRatio] = useState<ImageAspectRatio>(defaultComposerToolState.imageAspectRatio);
   const [isClientStateLoaded, setIsClientStateLoaded] = useState(false);
+  const headline = homeHeadlines[headlineIndex](profileName || 'Guest');
 
   useEffect(() => {
     let cancelled = false;
     const frame = window.requestAnimationFrame(() => {
       if (cancelled) return;
-      const toolState = loadComposerToolState();
       setInput(localStorage.getItem('deepchat-draft-new') || '');
-      setWebSearchEnabled(toolState.webSearchEnabled);
-      setImageGenerationEnabled(toolState.imageGenerationEnabled);
-      setImageAspectRatio(toolState.imageAspectRatio);
       setIsClientStateLoaded(true);
     });
     return () => {
       cancelled = true;
       window.cancelAnimationFrame(frame);
+    };
+  }, []);
+
+  useEffect(() => {
+    let mounted = true;
+    const loadProfile = () => getUserProfile().then((profile) => {
+      const savedProfile = profile as UserProfile;
+      if (mounted) setProfileName(savedProfile.name || 'Guest');
+    });
+    void loadProfile();
+    const headlineFrame = window.requestAnimationFrame(() => {
+      if (mounted) setHeadlineIndex(current => pickHeadlineIndex(current));
+    });
+    const refreshHome = () => {
+      setInput('');
+      setAttachedFiles([]);
+      setHeadlineIndex(current => pickHeadlineIndex(current));
+    };
+    const refreshProfile = () => {
+      void loadProfile();
+      setHeadlineIndex(current => pickHeadlineIndex(current));
+    };
+    window.addEventListener('deepchat:new-home-prompt', refreshHome);
+    window.addEventListener('profileUpdated', refreshProfile);
+    return () => {
+      mounted = false;
+      window.cancelAnimationFrame(headlineFrame);
+      window.removeEventListener('deepchat:new-home-prompt', refreshHome);
+      window.removeEventListener('profileUpdated', refreshProfile);
     };
   }, []);
 
@@ -111,42 +98,6 @@ export default function WelcomePage() {
     if (!isClientStateLoaded) return;
     saveComposerToolState({ webSearchEnabled, imageGenerationEnabled, imageAspectRatio });
   }, [webSearchEnabled, imageGenerationEnabled, imageAspectRatio, isClientStateLoaded]);
-
-  useEffect(() => {
-    let mounted = true;
-    const loadRecentFiles = async () => {
-      const chats = await getChats() as ChatSummary[];
-      if (!mounted) return;
-      const seen = new Set<string>();
-      const files = chats.flatMap(chat => {
-        const pending = (chat.pendingAttachedFiles || []).map(file => ({
-          ...file,
-          chatId: chat.id,
-          chatTitle: chat.title || 'New Chat',
-          addedAt: chat.createdAt || ''
-        }));
-        const fromMessages = (chat.messages || []).flatMap(message => (message.attachedFiles || []).map(file => ({
-          ...file,
-          chatId: chat.id,
-          chatTitle: chat.title || 'New Chat',
-          addedAt: message.createdAt || chat.createdAt || ''
-        })));
-        return [...pending, ...fromMessages];
-      }).filter(file => {
-        const key = `${file.name}-${file.ext}`;
-        if (seen.has(key)) return false;
-        seen.add(key);
-        return true;
-      }).slice(0, 12);
-      setRecentFiles(files);
-    };
-    void loadRecentFiles();
-    window.addEventListener('chatUpdated', loadRecentFiles);
-    return () => {
-      mounted = false;
-      window.removeEventListener('chatUpdated', loadRecentFiles);
-    };
-  }, []);
 
   const handleFilesUpload = async (files: File[]) => {
     if (files.length === 0) return;
@@ -187,126 +138,38 @@ export default function WelcomePage() {
     router.push(`/chat/${id}${qString ? `?${qString}` : ''}`);
   };
 
-  const openRecentFile = (file: RecentFile) => {
-    void startChat(`Please analyze ${getComposerDisplayName(file.name)}.`, [{ name: file.name, ext: file.ext }]);
-  };
-
   return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-transparent">
-      <div className={`flex min-h-0 flex-1 justify-center px-4 sm:px-6 lg:px-10 ${recentFiles.length > 0 ? 'items-start overflow-y-auto py-8 custom-scrollbar' : 'items-center overflow-hidden py-4'}`}>
-        <div className={`mx-auto hidden w-full max-w-5xl flex-col items-center gap-5 sm:flex sm:gap-6 ${recentFiles.length > 0 ? 'justify-start pb-8' : 'max-h-full justify-center overflow-hidden'}`}>
+    <div className="deepchat-home-light flex min-h-0 flex-1 flex-col overflow-hidden bg-white">
+      <div className="flex min-h-0 flex-1 items-center justify-center overflow-hidden px-4 py-6 sm:px-8 lg:px-12">
+        <div className="mx-auto flex w-full max-w-[64rem] -translate-y-10 flex-col items-center gap-20 sm:-translate-y-14 sm:gap-24">
           <motion.h1
-            initial={{ opacity: 0, y: 12 }}
+            key={headline}
+            initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.08, duration: 0.42 }}
-            className="max-w-3xl text-center text-3xl font-black leading-tight tracking-normal text-slate-950 sm:text-5xl lg:text-6xl"
+            transition={{ duration: 0.34, ease: [0.22, 1, 0.36, 1] }}
+            className="max-w-[58rem] text-center text-[30px] font-normal leading-[1.15] tracking-normal text-black sm:text-[40px]"
           >
-            What can I help with?
+            {headline}
           </motion.h1>
 
-          <motion.section
-            initial={{ opacity: 0, y: 12 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.18, duration: 0.42 }}
-            className="flex w-full max-w-4xl gap-3 overflow-x-auto px-1 pb-1 custom-scrollbar sm:flex-wrap sm:justify-center sm:overflow-visible"
-          >
-            {quickPrompts.map((item, index) => {
-              const Icon = item.icon;
-              return (
-                <motion.button
-                  key={item.title}
-                  type="button"
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: 0.23 + index * 0.04, duration: 0.34 }}
-                  whileHover={{ y: -3 }}
-                  whileTap={{ scale: 0.98 }}
-                  onClick={() => startChat(item.prompt)}
-                  className="group flex min-w-[180px] items-center gap-3 rounded-full border border-slate-200 bg-white px-4 py-3 text-left shadow-sm transition-all hover:border-slate-300 hover:shadow-md"
-                >
-                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-slate-50 text-slate-700 transition-colors group-hover:bg-slate-950 group-hover:text-white">
-                    <Icon className="h-5 w-5" />
-                  </span>
-                  <span className="min-w-0 flex-1">
-                    <span className="flex items-center gap-1 text-sm font-black leading-5 text-slate-900">
-                      {item.title}
-                      <ArrowUpRight className="h-3.5 w-3.5 text-slate-300 transition-colors group-hover:text-slate-700" />
-                    </span>
-                    <span className="block text-xs font-medium leading-5 text-slate-500">{item.desc}</span>
-                  </span>
-                </motion.button>
-              );
-            })}
-          </motion.section>
-
-          <AnimatePresence>
-            {recentFiles.length > 0 && (
-              <motion.section
-                initial={{ opacity: 0, y: 12 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: 8 }}
-                transition={{ duration: 0.35 }}
-                className="flex min-h-0 w-full max-w-4xl flex-col gap-3"
-              >
-                <div className="flex items-end justify-between gap-4 px-1">
-                  <div>
-                    <h2 className="text-sm font-black text-slate-900">Recent files</h2>
-                    <p className="mt-1 text-xs font-semibold text-slate-400">Open a file in a new chat</p>
-                  </div>
-                  <span className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-bold text-slate-500">
-                    {recentFiles.length}
-                  </span>
-                </div>
-                <div className="grid w-full gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                  {recentFiles.map((file, index) => (
-                    <motion.button
-                      key={`${file.name}-${file.ext}-${file.chatId}`}
-                      type="button"
-                      initial={{ opacity: 0, y: 8 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      transition={{ delay: index * 0.03, duration: 0.28 }}
-                      whileHover={{ y: -2 }}
-                      onClick={() => openRecentFile(file)}
-                      className="group flex min-h-20 min-w-0 items-center gap-4 rounded-[1.75rem] border border-slate-200 bg-white px-4 py-3 text-left shadow-sm transition-all hover:border-slate-300 hover:shadow-md"
-                    >
-                      <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-slate-50 text-slate-700">
-                        {getComposerFileIcon(file.ext, 'h-5 w-5')}
-                      </span>
-                      <span className="min-w-0 flex-1">
-                        <span className="block truncate text-sm font-black text-slate-800">{getComposerDisplayName(file.name)}</span>
-                        <span className="mt-1 block truncate text-xs font-semibold text-slate-400">{file.chatTitle}</span>
-                      </span>
-                    </motion.button>
-                  ))}
-                </div>
-              </motion.section>
-            )}
-          </AnimatePresence>
-        </div>
-      </div>
-
-      <div className="shrink-0 px-[54px] pb-5 sm:px-6 sm:pb-6">
-        <div className="mx-auto flex w-full max-w-3xl flex-col gap-2">
-          <ChatComposer
-            value={input}
-            attachedFiles={attachedFiles}
-            isUploading={isUploading}
-            webSearchEnabled={webSearchEnabled}
-            imageGenerationEnabled={imageGenerationEnabled}
-            imageAspectRatio={imageAspectRatio}
-            onChange={setInput}
-            onSubmit={(value) => startChat(value)}
-            onToggleWebSearch={setWebSearchEnabled}
-            onToggleImageGeneration={setImageGenerationEnabled}
-            onImageAspectRatioChange={setImageAspectRatio}
-            onFilesUpload={handleFilesUpload}
-            onAttachRecentFile={(file) => setAttachedFiles(prev => prev.some(item => item.name === file.name && item.ext === file.ext) ? prev : [...prev, file])}
-            onRemoveFile={(index) => setAttachedFiles(prev => prev.filter((_, itemIndex) => itemIndex !== index))}
-          />
-
-          <p className="text-center text-[11px] font-bold leading-snug text-[#d1dbe8] sm:text-xs sm:font-semibold sm:text-slate-400">
-            DeepChat can make mistakes. Verify important information before using it.
-          </p>
+          <div className="w-full md:w-[min(50vw,64rem)] md:min-w-[34rem]">
+            <ChatComposer
+              value={input}
+              attachedFiles={attachedFiles}
+              isUploading={isUploading}
+              webSearchEnabled={webSearchEnabled}
+              imageGenerationEnabled={imageGenerationEnabled}
+              imageAspectRatio={imageAspectRatio}
+              onChange={setInput}
+              onSubmit={(value) => startChat(value)}
+              onToggleWebSearch={setWebSearchEnabled}
+              onToggleImageGeneration={setImageGenerationEnabled}
+              onImageAspectRatioChange={setImageAspectRatio}
+              onFilesUpload={handleFilesUpload}
+              onAttachRecentFile={(file) => setAttachedFiles(prev => prev.some(item => item.name === file.name && item.ext === file.ext) ? prev : [...prev, file])}
+              onRemoveFile={(index) => setAttachedFiles(prev => prev.filter((_, itemIndex) => itemIndex !== index))}
+            />
+          </div>
         </div>
       </div>
     </div>

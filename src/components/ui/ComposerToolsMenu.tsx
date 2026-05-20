@@ -202,7 +202,7 @@ export function SearchToolBadge({ enabled, onDisable }: { enabled?: boolean; onD
           exit={{ opacity: 0, scale: 0.98 }}
           transition={{ duration: 0.18, ease: 'easeOut' }}
           onClick={onDisable}
-          className="group/search-tool inline-flex h-10 shrink-0 items-center gap-2 rounded-full px-2.5 text-sm font-semibold text-blue-600 transition-colors hover:bg-blue-50 dark:text-blue-300 dark:hover:bg-blue-500/15"
+          className="group/search-tool inline-flex h-9 shrink-0 items-center gap-2 rounded-full bg-white px-3 text-sm font-medium text-[#202020] shadow-sm ring-1 ring-black/5 transition-colors hover:bg-slate-50 dark:bg-slate-800 dark:text-slate-100 dark:ring-white/10 dark:hover:bg-slate-700"
           aria-label="Disable web search"
           aria-pressed="true"
         >
@@ -249,7 +249,7 @@ export function ImageToolBadge({ enabled, aspectRatio, onDisable, onAspectRatioC
           exit={{ opacity: 0, scale: 0.98 }}
           transition={{ duration: 0.18, ease: 'easeOut' }}
           ref={containerRef}
-          className="relative inline-flex h-10 shrink-0 items-center rounded-full text-sm font-semibold text-blue-600 dark:text-blue-300"
+          className="relative inline-flex h-9 shrink-0 items-center rounded-full bg-white text-sm font-medium text-[#202020] shadow-sm ring-1 ring-black/5 dark:bg-slate-800 dark:text-slate-100 dark:ring-white/10"
         >
           <button
             type="button"
@@ -257,7 +257,7 @@ export function ImageToolBadge({ enabled, aspectRatio, onDisable, onAspectRatioC
               setIsOpen(false);
               onDisable?.();
             }}
-            className="group/image-tool inline-flex h-10 shrink-0 items-center gap-2 rounded-l-full px-2.5 transition-colors hover:bg-blue-50 dark:hover:bg-blue-500/15"
+            className="group/image-tool inline-flex h-9 shrink-0 items-center gap-2 rounded-l-full px-3 transition-colors hover:bg-slate-50 dark:hover:bg-slate-700"
             aria-label="Disable image generation"
             aria-pressed="true"
           >
@@ -270,7 +270,7 @@ export function ImageToolBadge({ enabled, aspectRatio, onDisable, onAspectRatioC
           <button
             type="button"
             onClick={() => setIsOpen(open => !open)}
-            className={`inline-flex h-10 shrink-0 items-center gap-1.5 rounded-r-full px-2 pr-2.5 text-slate-700 transition-colors hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800 ${isAspectMenuOpen ? 'bg-slate-100 dark:bg-slate-800' : ''}`}
+            className={`inline-flex h-9 shrink-0 items-center gap-1.5 rounded-r-full px-2 pr-3 text-slate-700 transition-colors hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-700 ${isAspectMenuOpen ? 'bg-slate-100 dark:bg-slate-700' : ''}`}
             aria-label="Choose image aspect ratio"
             aria-expanded={isAspectMenuOpen}
           >

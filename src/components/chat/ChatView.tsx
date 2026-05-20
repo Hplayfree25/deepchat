@@ -20,8 +20,7 @@ import { normalizeImageAspectRatio, type ImageAspectRatio } from '@/lib/image-as
 import { defaultComposerToolState, loadComposerToolState, saveComposerToolState } from '@/lib/composer-tool-state';
 import { AnimatePresence, motion } from 'framer-motion';
 import {
-  Copy, ThumbsUp, ThumbsDown, RefreshCcw,
-  Bot, Check, ChevronDown, ChevronRight, BrainCircuit, ChevronLeft, Edit3, X, Cpu, Code2
+  Check, ChevronDown, ChevronRight, BrainCircuit, ChevronLeft, X, Cpu, Code2
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 
@@ -721,17 +720,15 @@ export default function ChatView({ chatId }: { chatId: string }) {
   const activeClarificationMessage = [...messages].reverse().find(m => m.role === 'assistant' && m.clarification && !m.clarificationAnswer && !m.isStreaming);
 
   return (
-    <div className="relative flex min-h-0 flex-1 flex-col">
+    <div className="deepchat-chat-view relative flex min-h-0 flex-1 flex-col bg-white text-black">
       <div
         ref={scrollContainerRef}
-        className={`flex-1 overflow-y-auto px-3 py-4 sm:p-6 ${showCustomScrollbar ? '[&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]' : 'custom-scrollbar'}`}
+        className={`flex-1 overflow-y-auto px-6 pb-4 pt-8 sm:px-14 sm:pb-6 sm:pt-12 ${showCustomScrollbar ? '[&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]' : 'custom-scrollbar'}`}
       >
-        <div className="mx-auto flex w-full max-w-4xl flex-col gap-4 sm:gap-6" style={{ paddingBottom: composerReserve }}>
+        <div className="mx-auto flex w-full max-w-6xl flex-col gap-12 sm:gap-14" style={{ paddingBottom: composerReserve }}>
           {messages.length === 0 && !isLoading && (
-            <div className="flex flex-col items-center justify-center h-full mt-20 text-center opacity-50">
-              <Bot className="w-16 h-16 mb-4 text-slate-400" />
-              <h3 className="text-xl font-bold text-slate-600">Start a conversation</h3>
-              <p className="text-sm text-slate-500 mt-2 max-w-sm">Type a message below to begin chatting with the AI.</p>
+            <div className="mt-24 flex flex-col items-center justify-center text-center text-slate-400">
+              <h3 className="text-xl font-medium text-slate-500">Start a conversation</h3>
             </div>
           )}
 
@@ -767,8 +764,8 @@ export default function ChatView({ chatId }: { chatId: string }) {
                     title={`Jump to User Message ${idx + 1}`}
                     onClick={() => document.getElementById(`msg-${m.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })}
                     className={`shrink-0 rounded-full transition-all shadow-sm duration-300 ${isActive
-                      ? 'w-3 h-3 bg-indigo-500 ring-2 ring-indigo-400/30 scale-110'
-                      : 'w-2 h-2 bg-slate-400 hover:bg-indigo-400 hover:scale-125 dark:bg-slate-600 dark:hover:bg-indigo-400'
+                      ? 'w-3 h-3 bg-slate-800 ring-2 ring-slate-300/70 scale-110'
+                      : 'w-2 h-2 bg-slate-300 hover:bg-slate-600 hover:scale-125 dark:bg-slate-600 dark:hover:bg-slate-300'
                       }`}
                   />
                 );
@@ -778,8 +775,8 @@ export default function ChatView({ chatId }: { chatId: string }) {
         </div>
       )}
 
-      <div className="deepchat-composer-dock pointer-events-none absolute bottom-0 left-0 z-20 flex w-full flex-col items-center px-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] pt-6 sm:p-6">
-        <div ref={composerContentRef} className="pointer-events-auto flex w-full max-w-3xl flex-col gap-2">
+      <div className="deepchat-composer-dock pointer-events-none absolute bottom-0 left-0 z-20 flex w-full flex-col items-center px-6 pb-[calc(1rem+env(safe-area-inset-bottom))] pt-8 sm:px-8 sm:pb-7 sm:pt-10">
+        <div ref={composerContentRef} className="pointer-events-auto flex w-full max-w-[40rem] flex-col gap-2 sm:max-w-[50rem]">
           {activeClarificationMessage?.clarification ? (
             <ClarificationDock
               clarification={activeClarificationMessage.clarification}
@@ -807,8 +804,8 @@ export default function ChatView({ chatId }: { chatId: string }) {
               onRemoveFile={(index) => setAttachedFiles(prev => prev.filter((_, itemIndex) => itemIndex !== index))}
             />
           )}
-          <div className="mt-3 hidden text-center sm:block">
-            <p className="inline-flex rounded-full px-3 py-1 text-xs font-medium text-slate-400 dark:bg-slate-950/70 dark:text-slate-500 dark:ring-1 dark:ring-slate-800/80">DeepChat can make mistakes. Consider verifying important information.</p>
+          <div className="mt-3 text-center">
+            <p className="inline-flex px-3 py-1 text-[11px] font-semibold text-[#cbd5e1] sm:text-xs">DeepChat can make mistakes. Verify important information before using it.</p>
           </div>
         </div>
       </div>
@@ -1305,6 +1302,45 @@ function MessageActionButton({ label, tooltip = label, disabled, className, onCl
   );
 }
 
+function IconifyActionIcon({ icon, className = 'h-4 w-4' }: { icon: string; className?: string }) {
+  return (
+    <span
+      aria-hidden="true"
+      className={`inline-block shrink-0 ${className} bg-current`}
+      style={{
+        WebkitMaskImage: `url("https://api.iconify.design/${icon}.svg")`,
+        maskImage: `url("https://api.iconify.design/${icon}.svg")`,
+        WebkitMaskRepeat: 'no-repeat',
+        maskRepeat: 'no-repeat',
+        WebkitMaskPosition: 'center',
+        maskPosition: 'center',
+        WebkitMaskSize: 'contain',
+        maskSize: 'contain'
+      }}
+    />
+  );
+}
+
+function CopyActionIcon({ copied, className = 'h-4 w-4' }: { copied: boolean; className?: string }) {
+  if (copied) return <Check className={`${className} text-emerald-500`} strokeWidth={2.5} />;
+  return (
+    <span
+      aria-hidden="true"
+      className={`inline-block shrink-0 ${className} bg-current`}
+      style={{
+        WebkitMaskImage: 'url("/icons/copy.svg")',
+        maskImage: 'url("/icons/copy.svg")',
+        WebkitMaskRepeat: 'no-repeat',
+        maskRepeat: 'no-repeat',
+        WebkitMaskPosition: 'center',
+        maskPosition: 'center',
+        WebkitMaskSize: 'contain',
+        maskSize: 'contain'
+      }}
+    />
+  );
+}
+
 const MessageBubble = React.memo(function MessageBubble({ message, onRegenerate, onSwitchVersion, canEditUserMessage = false, onEditUserMessage, isMobileActionsOpen = false, onActivateMobileActions }: MessageBubbleProps) {
   const isUser = message.role === 'user';
   const [copied, setCopied] = useState(false);
@@ -1360,7 +1396,7 @@ const MessageBubble = React.memo(function MessageBubble({ message, onRegenerate,
       onClick={onActivateMobileActions}
       className={`group/message flex w-full items-start ${isUser ? 'justify-end message-user' : 'justify-start'} animate-in fade-in slide-in-from-bottom-2`}
     >
-      <div className={`flex min-w-0 flex-col ${isUser ? 'max-w-[92%] items-end sm:max-w-[75%]' : 'w-full max-w-3xl items-start'}`}>
+      <div className={`flex min-w-0 flex-col ${isUser ? 'max-w-[78%] items-end sm:max-w-[52%]' : 'w-full max-w-[44rem] items-start sm:max-w-[48rem]'}`}>
         {!isUser && message.reasoning && (
           <ReasoningSection content={message.reasoning} isStreaming={message.isStreaming && !message.content} duration={message.reasoningDuration} />
         )}
@@ -1397,10 +1433,10 @@ const MessageBubble = React.memo(function MessageBubble({ message, onRegenerate,
 
         {(standardContent || postMCPContent) ? (
           <div className={`max-w-full ${isUser
-            ? 'rounded-2xl rounded-tr-sm bg-indigo-600 px-4 py-2.5 text-white shadow-sm sm:rounded-3xl sm:px-5 sm:py-3'
+            ? 'rounded-[1.45rem] bg-[#d7d7d7] px-5 py-3 text-black shadow-none sm:rounded-[1.65rem] sm:bg-[#aeeefa] sm:px-5 sm:py-3.5'
             : message.isError
               ? 'px-1 py-1 text-red-600'
-              : 'px-1 py-0 text-slate-800'
+              : 'px-0 py-0 text-black'
             }`}>
             {isUser && isEditingUserMessage ? (
               <div className="w-[min(72vw,520px)]">
@@ -1413,29 +1449,27 @@ const MessageBubble = React.memo(function MessageBubble({ message, onRegenerate,
                     if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') void saveUserEdit();
                   }}
                   rows={Math.min(8, Math.max(3, userDraft.split('\n').length))}
-                  className="w-full resize-none rounded-2xl border border-white/25 bg-white px-3 py-2 text-[15px] leading-relaxed text-slate-950 shadow-inner outline-none transition focus:border-white focus:ring-2 focus:ring-white/60"
+                  className="w-full resize-none bg-transparent px-1 pb-3 pt-0 text-[17px] font-medium leading-relaxed text-black outline-none placeholder:text-black/40 sm:text-[16px]"
                 />
-                <div className="mt-2 flex justify-end gap-2">
+                <div className="-mt-0.5 flex justify-end gap-2 pr-0.5">
                   <button
                     type="button"
                     onClick={cancelUserEdit}
-                    className="inline-flex h-8 items-center gap-1.5 rounded-full bg-white/10 px-3 text-xs font-bold text-white ring-1 ring-white/20 transition hover:bg-white/20"
+                    className="inline-flex h-7 items-center rounded-full border border-[#cfbfc0] bg-white/95 px-3 text-[14px] font-medium leading-none text-black transition hover:bg-white"
                   >
-                    <X className="h-3.5 w-3.5" />
                     Cancel
                   </button>
                   <button
                     type="button"
                     onClick={() => void saveUserEdit()}
-                    className="inline-flex h-8 items-center gap-1.5 rounded-full bg-white px-3 text-xs font-bold text-indigo-700 shadow-sm transition hover:bg-indigo-50"
+                    className="inline-flex h-7 items-center rounded-full bg-black px-3.5 text-[14px] font-medium leading-none text-white transition hover:bg-black/80"
                   >
-                    <Check className="h-3.5 w-3.5" />
-                    Save
+                    Send
                   </button>
                 </div>
               </div>
             ) : isUser ? (
-              <div className="whitespace-pre-wrap break-words text-[15px] leading-relaxed">
+              <div className="whitespace-pre-wrap break-words text-[18px] font-medium leading-relaxed sm:text-[17px]">
                 {message.content}
               </div>
             ) : (
@@ -1447,9 +1481,9 @@ const MessageBubble = React.memo(function MessageBubble({ message, onRegenerate,
         ) : message.isStreaming && !message.reasoning && !hasActiveCodeExecution && (
           <div className="flex min-h-8 w-fit items-center px-1 py-2">
             <div className="flex space-x-1.5">
-              <div className="w-2 h-2 bg-indigo-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
-              <div className="w-2 h-2 bg-indigo-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
-              <div className="w-2 h-2 bg-indigo-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
+              <div className="w-2 h-2 bg-slate-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
+              <div className="w-2 h-2 bg-slate-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
+              <div className="w-2 h-2 bg-slate-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
             </div>
           </div>
         )}
@@ -1459,42 +1493,42 @@ const MessageBubble = React.memo(function MessageBubble({ message, onRegenerate,
         )}
 
         {isUser && !isEditingUserMessage && (
-          <div className={`mt-0 flex h-7 max-w-full flex-wrap items-center justify-end gap-1 transition-opacity duration-200 sm:gap-1.5 sm:pointer-events-none sm:opacity-0 sm:group-hover/message:pointer-events-auto sm:group-hover/message:opacity-100 sm:group-focus-within/message:pointer-events-auto sm:group-focus-within/message:opacity-100 ${isMobileActionsOpen ? 'pointer-events-auto opacity-100' : 'pointer-events-none opacity-0'}`}>
+          <div className={`mt-1 flex h-8 max-w-full flex-wrap items-center justify-end gap-1 transition-opacity duration-200 sm:gap-1.5 sm:pointer-events-none sm:opacity-0 sm:group-hover/message:pointer-events-auto sm:group-hover/message:opacity-100 sm:group-focus-within/message:pointer-events-auto sm:group-focus-within/message:opacity-100 ${isMobileActionsOpen ? 'pointer-events-auto opacity-100' : 'pointer-events-none opacity-0'}`}>
             <MessageActionButton
               label={copied ? 'Copied' : 'Copy message'}
               tooltip={copied ? 'Copied' : 'Copy message'}
               onClick={handleCopy}
-              className="rounded-md p-1.5 text-slate-400 transition-colors hover:bg-indigo-50 hover:text-indigo-600"
+              className="inline-flex items-center justify-center rounded-full p-1 text-[#aaa0a0] transition-colors hover:text-black"
             >
-              {copied ? <Check className="h-4 w-4 text-emerald-500" strokeWidth={2.5} /> : <Copy className="h-4 w-4" strokeWidth={2.35} />}
+              <CopyActionIcon copied={copied} />
             </MessageActionButton>
             {canEditUserMessage && (
               <MessageActionButton
                 label="Edit message"
                 tooltip="Edit message"
                 onClick={startUserEdit}
-                className="rounded-md p-1.5 text-slate-400 transition-colors hover:bg-indigo-50 hover:text-indigo-600"
+                className="inline-flex items-center justify-center rounded-full p-1 text-[#aaa0a0] transition-colors hover:text-black"
               >
-                <Edit3 className="h-4 w-4" strokeWidth={2.35} />
+                <IconifyActionIcon icon="mynaui:edit-solid" className="h-4 w-4" />
               </MessageActionButton>
             )}
           </div>
         )}
 
         {!isUser && !message.isStreaming && (
-          <div className={`mt-0 ml-1 flex h-7 max-w-full flex-wrap items-center gap-1 transition-opacity duration-200 sm:gap-1.5 sm:pointer-events-none sm:opacity-0 sm:group-hover/message:pointer-events-auto sm:group-hover/message:opacity-100 sm:group-focus-within/message:pointer-events-auto sm:group-focus-within/message:opacity-100 ${isMobileActionsOpen ? 'pointer-events-auto opacity-100' : 'pointer-events-none opacity-0'}`}>
+          <div className={`mt-2 ml-0 flex min-h-8 max-w-full flex-wrap items-center gap-1.5 transition-opacity duration-200 sm:pointer-events-none sm:opacity-0 sm:group-hover/message:pointer-events-auto sm:group-hover/message:opacity-100 sm:group-focus-within/message:pointer-events-auto sm:group-focus-within/message:opacity-100 ${isMobileActionsOpen ? 'pointer-events-auto opacity-100' : 'pointer-events-auto opacity-100 sm:pointer-events-none sm:opacity-0'}`}>
             {hasVersions && (
-              <div className="flex items-center gap-1 bg-slate-100/80 rounded-lg px-1.5 py-1 mr-2 border border-slate-200/60">
+              <div className="mr-1 flex items-center gap-1 rounded-full px-1 py-0.5">
                 <MessageActionButton
                   label="Previous response version"
                   tooltip="Previous version"
                   onClick={() => onSwitchVersion && onSwitchVersion(-1)}
                   disabled={currentIdx === 0}
-                  className="p-0.5 text-slate-400 hover:text-slate-700 disabled:opacity-30 transition-colors"
+                  className="rounded-full p-1 text-[#aaa0a0] transition-colors hover:text-black disabled:opacity-30"
                 >
                   <ChevronLeft className="w-4 h-4" strokeWidth={2.35} />
                 </MessageActionButton>
-                <span className="text-[11px] font-bold text-slate-500 w-7 text-center">
+                <span className="w-7 text-center text-[11px] font-semibold text-[#8f8989]">
                   {currentIdx + 1} / {totalVersions}
                 </span>
                 <MessageActionButton
@@ -1502,7 +1536,7 @@ const MessageBubble = React.memo(function MessageBubble({ message, onRegenerate,
                   tooltip="Next version"
                   onClick={() => onSwitchVersion && onSwitchVersion(1)}
                   disabled={currentIdx === totalVersions - 1}
-                  className="p-0.5 text-slate-400 hover:text-slate-700 disabled:opacity-30 transition-colors"
+                  className="rounded-full p-1 text-[#aaa0a0] transition-colors hover:text-black disabled:opacity-30"
                 >
                   <ChevronRight className="w-4 h-4" strokeWidth={2.35} />
                 </MessageActionButton>
@@ -1513,32 +1547,32 @@ const MessageBubble = React.memo(function MessageBubble({ message, onRegenerate,
               label={copied ? 'Copied' : 'Copy response'}
               tooltip={copied ? 'Copied' : 'Copy response'}
               onClick={handleCopy}
-              className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-md transition-colors"
+              className="inline-flex items-center justify-center rounded-full p-1 text-[#aaa0a0] transition-colors hover:text-black"
             >
-              {copied ? <Check className="w-4 h-4 text-emerald-500" strokeWidth={2.5} /> : <Copy className="w-4 h-4" strokeWidth={2.35} />}
+              <CopyActionIcon copied={copied} className="h-4 w-4" />
             </MessageActionButton>
             <MessageActionButton
               label="Like response"
               tooltip="Like response"
-              className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-md transition-colors"
+              className="inline-flex items-center justify-center rounded-full p-1 text-[#aaa0a0] transition-colors hover:text-black"
             >
-              <ThumbsUp className="w-4 h-4" strokeWidth={2.35} />
+              <IconifyActionIcon icon="solar:like-bold" className="h-4 w-4" />
             </MessageActionButton>
             <MessageActionButton
               label="Dislike response"
               tooltip="Dislike response"
-              className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-md transition-colors"
+              className="inline-flex items-center justify-center rounded-full p-1 text-[#aaa0a0] transition-colors hover:text-black"
             >
-              <ThumbsDown className="w-4 h-4" strokeWidth={2.35} />
+              <IconifyActionIcon icon="solar:dislike-bold" className="h-4 w-4" />
             </MessageActionButton>
             {onRegenerate && (
               <MessageActionButton
                 label="Regenerate response"
                 tooltip="Regenerate response"
                 onClick={onRegenerate}
-                className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-md transition-colors"
+                className="inline-flex items-center justify-center rounded-full p-1 text-[#aaa0a0] transition-colors hover:text-black"
               >
-                <RefreshCcw className="w-4 h-4" strokeWidth={2.35} />
+                <IconifyActionIcon icon="octicon:loop-16" className="h-4 w-4" />
               </MessageActionButton>
             )}
           </div>
