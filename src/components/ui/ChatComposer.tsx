@@ -3,7 +3,6 @@
 import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import {
   ArrowUp,
-  ArrowRight,
   BookOpen,
   Code2,
   File as FileIcon,
@@ -150,6 +149,7 @@ export default function ChatComposer({
   const [textareaHeight, setTextareaHeight] = useState(38);
   const shortcuts = useShortcutLabels();
   const canSubmit = value.trim().length > 0 || attachedFiles.length > 0;
+  const hasText = value.trim().length > 0;
   const isToolComposerActive = webSearchEnabled || imageGenerationEnabled;
   const textareaTop = textareaSlot ? textareaSlot.top + Math.max(0, (textareaSlot.minHeight - textareaHeight) / 2) : 0;
 
@@ -506,10 +506,14 @@ export default function ChatComposer({
           {isBusy ? (
             <Square className="h-3.5 w-3.5 fill-[#202020] text-[#202020]" strokeWidth={2} />
           ) : (
-            <>
-              <ArrowUp className="hidden sm:block h-[18px] w-[18px] text-[#202020]" strokeWidth={2.5} />
-              <ArrowRight className="block sm:hidden h-[18px] w-[18px] text-[#202020]" strokeWidth={2.5} />
-            </>
+            <motion.span
+              initial={false}
+              animate={{ rotate: hasText ? 0 : 90, y: hasText ? -0.5 : 0 }}
+              transition={{ duration: 0.24, ease: [0.33, 1, 0.68, 1] }}
+              className="flex h-[18px] w-[18px] items-center justify-center"
+            >
+              <ArrowUp className="h-[18px] w-[18px] text-[#202020]" strokeWidth={2.5} />
+            </motion.span>
           )}
         </button>
       </Tooltip>

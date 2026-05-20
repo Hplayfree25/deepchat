@@ -4,7 +4,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Bot, CheckCircle2, ChevronDown, Database, Settings, Sparkles, ArrowRight } from 'lucide-react';
 import { useShortcutLabels } from '@/components/shortcuts';
 import Tooltip from '@/components/ui/Tooltip';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion, AnimatePresence, type PanInfo } from 'framer-motion';
 
 interface SelectedModel {
   id: string;
@@ -246,7 +246,7 @@ function ModelMenu({ currentModel, onClose, onSelect, onOpenSettings }: {
     fetchModelsFor(conn);
   };
 
-  const handleDragEnd = (event: any, info: any) => {
+  const handleDragEnd = (_event: MouseEvent | TouchEvent | PointerEvent, info: PanInfo) => {
     if (info.offset.y > 100 || info.velocity.y > 500) {
       onClose();
     }
