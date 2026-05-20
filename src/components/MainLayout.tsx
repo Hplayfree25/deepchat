@@ -13,6 +13,7 @@ import Sidebar from './Sidebar';
 import { DeepChatWordmarkSvg } from './brand';
 import ModelSelector from './ui/ModelSelector';
 import { isShortcutEvent, ShortcutCombo, useShortcutLabels } from './shortcuts';
+import type { SettingsTab } from './SettingsModal';
 import toast, { Toaster } from 'react-hot-toast';
 import { getChat, deleteChat, shareChat, getUserProfile } from '@/app/actions';
 import {
@@ -97,6 +98,8 @@ const loadStoredBoolean = (key: string, fallback: boolean) => {
 };
 
 const detailFromEvent = (event: CustomEvent<DeepChatNotificationDetail>) => event.detail;
+const settingsTabs: SettingsTab[] = ['general', 'profile', 'personality', 'connection', 'notifications', 'mcp', 'tools', 'agent', 'data'];
+const isSettingsTab = (value: unknown): value is SettingsTab => typeof value === 'string' && settingsTabs.includes(value as SettingsTab);
 
 export default function MainLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -111,6 +114,7 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
   const [isSidebarOpen, setSidebarOpen] = useState(() => loadStoredBoolean('isSidebarOpen', pathname.startsWith('/chat')));
   const [isMobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [settingsInitialTab, setSettingsInitialTab] = useState<SettingsTab>('general');
   const [isNotificationOpen, setNotificationOpen] = useState(false);
   const [isProfileMenuOpen, setProfileMenuOpen] = useState(false);
   const [profile, setProfile] = useState<UserProfile>({ name: 'Guest', avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=Felix', plan: '' });
@@ -146,11 +150,19 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
     });
   }, []);
 
+  const openSettings = useCallback((tab: SettingsTab = 'general') => {
+    setSettingsInitialTab(tab);
+    setIsSettingsOpen(true);
+  }, []);
+
   useEffect(() => {
-    const handleOpenSettings = () => setIsSettingsOpen(true);
+    const handleOpenSettings = (event: Event) => {
+      const tab = event instanceof CustomEvent && isSettingsTab(event.detail?.tab) ? event.detail.tab : 'general';
+      openSettings(tab);
+    };
     window.addEventListener('openSettings', handleOpenSettings);
     return () => window.removeEventListener('openSettings', handleOpenSettings);
-  }, []);
+  }, [openSettings]);
 
   useEffect(() => {
     const handleOpenFileLibrary = () => {
@@ -355,9 +367,14 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
 
   const unreadNotifications = notifications.filter(notification => notification.unread).length;
 
-  const openSettingsFromProfile = () => {
+  const openProfileSettings = () => {
     setProfileMenuOpen(false);
-    setIsSettingsOpen(true);
+    openSettings('profile');
+  };
+
+  const openGeneralSettings = () => {
+    setProfileMenuOpen(false);
+    openSettings('general');
   };
 
   const markNotificationRead = (id: string) => {
@@ -436,11 +453,11 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
         </div>
       </div>
       <div className="p-2">
-        <button onClick={openSettingsFromProfile} className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50">
+        <button onClick={openProfileSettings} className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50">
           <User className="h-4 w-4 text-slate-400" />
           Edit Profile
         </button>
-        <button onClick={openSettingsFromProfile} className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50">
+        <button onClick={openGeneralSettings} className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50">
           <Settings className="h-4 w-4 text-slate-400" />
           Settings
         </button>
@@ -516,7 +533,7 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
         setIsOpen={setSidebarState}
         isMobileOpen={isMobileMenuOpen}
         setMobileOpen={setMobileMenuOpen}
-        onOpenSettings={() => setIsSettingsOpen(true)}
+        onOpenSettings={openSettings}
         onOpenSearch={handleOpenSearch}
         onOpenActions={handleOpenActions}
       />
@@ -628,7 +645,7 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
 
       <ModelSelector renderTrigger={false} mobileOnly />
 
-      {isSettingsOpen && <SettingsModal isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} />}
+      {isSettingsOpen && <SettingsModal isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} initialTab={settingsInitialTab} />}
 
       <Toaster
         position="top-center"

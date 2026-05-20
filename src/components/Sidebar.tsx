@@ -7,18 +7,21 @@ import { getChats, togglePinChat, archiveChat, deleteChat } from '@/app/actions'
 import toast from 'react-hot-toast';
 import {
   Bot, Plus, Compass, MessageSquare, LayoutTemplate,
-  Book, Puzzle, ChevronDown, Star, Pin, X, MoreVertical, Archive, Trash2, Settings, FileText
+  Book, Puzzle, ChevronDown, Star, Pin, X, MoreVertical, Archive, Trash2, FileText, User, Brain
 } from 'lucide-react';
 import { DeepChatWordmarkSvg } from './brand';
 import { useShortcutLabels } from './shortcuts';
 import Tooltip from './ui/Tooltip';
+import type { SettingsTab } from './SettingsModal';
+
+type SidebarSettingsTab = Extract<SettingsTab, 'general' | 'profile' | 'personality'>;
 
 interface SidebarProps {
   isOpen: boolean;
   setIsOpen: (val: boolean) => void;
   isMobileOpen: boolean;
   setMobileOpen: (val: boolean) => void;
-  onOpenSettings: () => void;
+  onOpenSettings: (tab?: SidebarSettingsTab) => void;
   onOpenSearch: () => void;
   onOpenActions: () => void;
 }
@@ -104,23 +107,24 @@ export default function Sidebar({ isOpen, setIsOpen, isMobileOpen, setMobileOpen
   const unpinnedChats = chats.filter(c => !c.pinned);
   const visibleRecent = showAllRecent ? unpinnedChats : unpinnedChats.slice(0, 4);
 
-  const handleOpenSettings = () => {
+  const handleOpenSettings = (tab: SidebarSettingsTab = 'general') => {
     setProfileMenuOpen(false);
     setMobileOpen(false);
-    onOpenSettings();
-    window.dispatchEvent(new Event('openSettings'));
+    onOpenSettings(tab);
   };
 
-  const handleSettingsPointerDown = (event: React.PointerEvent<HTMLButtonElement>) => {
-    event.preventDefault();
-    event.stopPropagation();
-    handleOpenSettings();
+  const handleOpenDocs = () => {
+    setProfileMenuOpen(false);
+    setMobileOpen(false);
+    toast('Docs are available in the project documentation.');
   };
 
-  const profileRef = useRef<HTMLDivElement>(null);
+  const profileMenuRefs = useRef<Array<HTMLDivElement | null>>([]);
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
-      if (profileRef.current && !profileRef.current.contains(event.target as Node)) {
+      const target = event.target as Node;
+      const isInsideProfileMenu = profileMenuRefs.current.some(node => node?.contains(target));
+      if (!isInsideProfileMenu) {
         setProfileMenuOpen(false);
       }
     }
@@ -128,31 +132,59 @@ export default function Sidebar({ isOpen, setIsOpen, isMobileOpen, setMobileOpen
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [profileMenuOpen]);
 
-  const renderProfile = () => (
-    <div className="relative" ref={profileRef}>
-      <div 
-        className="flex items-center gap-3 bg-slate-800/50 p-2 rounded-2xl cursor-pointer hover:bg-slate-800 transition-colors"
+  const renderProfile = (variant: 'expanded' | 'mobile', refIndex: number) => {
+    const isExpanded = variant === 'expanded';
+    const avatarSrc = profile.avatar || 'https://api.dicebear.com/7.x/avataaars/svg?seed=Felix';
+    return (
+    <div className="relative" ref={(node) => { profileMenuRefs.current[refIndex] = node; }}>
+      <button
+        type="button"
+        className={isExpanded
+          ? "flex w-full items-center gap-2.5 rounded-xl p-1.5 text-left text-black transition-colors hover:bg-black/5 active:scale-[0.99]"
+          : "flex w-full items-center gap-3 rounded-2xl bg-slate-800/50 p-2 text-left transition-colors hover:bg-slate-800 active:scale-[0.99]"}
         onClick={() => setProfileMenuOpen(!profileMenuOpen)}
+        aria-expanded={profileMenuOpen}
+        aria-label="Open profile menu"
       >
-        <Image src={profile.avatar} alt="User" width={40} height={40} unoptimized className="w-10 h-10 rounded-full border-2 border-slate-700 object-cover" />
+        <Image
+          src={avatarSrc}
+          alt="User"
+          width={isExpanded ? 34 : 40}
+          height={isExpanded ? 34 : 40}
+          unoptimized
+          className={isExpanded
+            ? "h-[34px] w-[34px] rounded-full border border-black/10 bg-white object-cover"
+            : "h-10 w-10 rounded-full border-2 border-slate-700 object-cover"}
+        />
         <div className="flex-1 min-w-0">
-          <p className="text-sm font-medium text-white truncate">{profile.name}</p>
-          <p className="text-xs text-slate-400 truncate">{profile.plan || 'No Plan'}</p>
+          <p className={isExpanded ? "truncate text-[15px] font-medium leading-tight text-black" : "truncate text-sm font-medium text-white"}>{profile.name || 'Guest'}</p>
+          <p className={isExpanded ? "truncate text-xs font-medium leading-tight text-[#8f8989]" : "truncate text-xs text-slate-400"}>{profile.plan || 'No Plan'}</p>
         </div>
-      </div>
+        <ChevronDown className={`h-4 w-4 shrink-0 transition-transform ${profileMenuOpen ? 'rotate-180' : ''} ${isExpanded ? 'text-[#8f8989]' : 'text-slate-400'}`} strokeWidth={1.75} />
+      </button>
       
       {profileMenuOpen && (
-        <div className="absolute bottom-16 left-0 right-0 z-50 bg-slate-800 border border-slate-700 rounded-xl shadow-xl py-1 overflow-hidden">
-          <button onPointerDown={handleSettingsPointerDown} onClick={event => event.preventDefault()} className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-slate-300 hover:bg-slate-700 hover:text-white">
-            <Settings className="w-4 h-4" /> Settings
+        <div className={isExpanded
+          ? "absolute bottom-full left-0 right-0 z-50 mb-2 overflow-hidden rounded-xl border border-black/5 bg-white py-1 shadow-xl shadow-black/10"
+          : "absolute bottom-16 left-0 right-0 z-50 overflow-hidden rounded-xl border border-slate-700 bg-slate-800 py-1 shadow-xl"}
+        >
+          <button type="button" onClick={() => handleOpenSettings('general')} className={isExpanded ? "flex w-full items-center gap-2.5 px-3 py-2.5 text-left text-sm font-medium text-black transition-colors hover:bg-black/5" : "flex w-full items-center gap-2 px-4 py-2.5 text-sm text-slate-300 hover:bg-slate-700 hover:text-white"}>
+            <IconifyFill icon="material-symbols:settings-rounded" className="h-4 w-4 shrink-0" /> Settings
           </button>
-          <button onClick={() => setProfileMenuOpen(false)} className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-slate-300 hover:bg-slate-700 hover:text-white">
-            <FileText className="w-4 h-4" /> Docs
+          <button type="button" onClick={() => handleOpenSettings('profile')} className={isExpanded ? "flex w-full items-center gap-2.5 px-3 py-2.5 text-left text-sm font-medium text-black transition-colors hover:bg-black/5" : "flex w-full items-center gap-2 px-4 py-2.5 text-sm text-slate-300 hover:bg-slate-700 hover:text-white"}>
+            <User className="h-4 w-4 shrink-0" strokeWidth={1.9} /> Profile
+          </button>
+          <button type="button" onClick={() => handleOpenSettings('personality')} className={isExpanded ? "flex w-full items-center gap-2.5 px-3 py-2.5 text-left text-sm font-medium text-black transition-colors hover:bg-black/5" : "flex w-full items-center gap-2 px-4 py-2.5 text-sm text-slate-300 hover:bg-slate-700 hover:text-white"}>
+            <Brain className="h-4 w-4 shrink-0" strokeWidth={1.9} /> Personalization
+          </button>
+          <button type="button" onClick={handleOpenDocs} className={isExpanded ? "flex w-full items-center gap-2.5 px-3 py-2.5 text-left text-sm font-medium text-black transition-colors hover:bg-black/5" : "flex w-full items-center gap-2 px-4 py-2.5 text-sm text-slate-300 hover:bg-slate-700 hover:text-white"}>
+            <FileText className="h-4 w-4 shrink-0" strokeWidth={1.9} /> Docs
           </button>
         </div>
       )}
     </div>
-  );
+    );
+  };
 
   return (
     <>
@@ -183,16 +215,16 @@ export default function Sidebar({ isOpen, setIsOpen, isMobileOpen, setMobileOpen
           </div>
 
           <div className="mt-auto flex flex-col items-center gap-4 pb-1">
-            <CollapsedSidebarButton label="Settings" onClick={handleOpenSettings}>
+            <CollapsedSidebarButton label="Settings" onClick={() => handleOpenSettings()}>
               <IconifyFill icon="material-symbols:settings-rounded" />
             </CollapsedSidebarButton>
             <button
               type="button"
-              onClick={handleOpenSettings}
+              onClick={() => handleOpenSettings('profile')}
               className="flex h-8 w-8 items-center justify-center rounded-full transition-transform hover:scale-105 active:scale-95"
               aria-label="Profile"
             >
-              <Image src={profile.avatar} alt="User" width={28} height={28} unoptimized className="h-7 w-7 rounded-full object-cover" />
+              <Image src={profile.avatar || 'https://api.dicebear.com/7.x/avataaars/svg?seed=Felix'} alt="User" width={28} height={28} unoptimized className="h-7 w-7 rounded-full object-cover" />
             </button>
           </div>
         </div>
@@ -286,6 +318,10 @@ export default function Sidebar({ isOpen, setIsOpen, isMobileOpen, setMobileOpen
             )}
           </div>
         </div>
+
+        <div className="shrink-0 px-3 pb-3 pt-2">
+          {renderProfile('expanded', 0)}
+        </div>
       </div>
 
       <div className={`fixed inset-0 z-50 flex transition sm:hidden ${isMobileOpen ? 'pointer-events-auto' : 'pointer-events-none'}`}>
@@ -363,7 +399,7 @@ export default function Sidebar({ isOpen, setIsOpen, isMobileOpen, setMobileOpen
               </div>
             </div>
             <div className="p-4 border-t border-slate-800">
-               {renderProfile()}
+               {renderProfile('mobile', 1)}
             </div>
           </div>
         </div>

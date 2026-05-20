@@ -120,7 +120,7 @@ const Cropper = dynamic(() => import('react-easy-crop'), {
   )
 });
 
-type SettingsTab = 'general' | 'profile' | 'personality' | 'connection' | 'notifications' | 'mcp' | 'tools' | 'agent' | 'data';
+export type SettingsTab = 'general' | 'profile' | 'personality' | 'connection' | 'notifications' | 'mcp' | 'tools' | 'agent' | 'data';
 type VerifyStepStatus = 'pending' | 'loading' | 'success' | 'error';
 
 interface UserProfile {
@@ -188,6 +188,7 @@ interface ConfirmDialogState {
 interface SettingsModalProps {
   isOpen: boolean;
   onClose: () => void;
+  initialTab?: SettingsTab;
 }
 
 const getErrorMessage = (error: unknown, fallback: string) => error instanceof Error ? error.message : fallback;
@@ -212,10 +213,10 @@ const dedupeModelCollection = (models: ModelCollection): ModelCollection => mode
 });
 const modalAnimationMs = 180;
 
-export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
+export default function SettingsModal({ isOpen, onClose, initialTab = 'general' }: SettingsModalProps) {
   const router = useRouter();
   const pathname = usePathname();
-  const [activeTab, setActiveTab] = useState<SettingsTab>('general');
+  const [activeTab, setActiveTab] = useState<SettingsTab>(initialTab);
   const [generalSettings, setGeneralSettings] = useState<GeneralSettings>(defaultGeneralSettings);
   const [profile, setProfile] = useState<UserProfile>({ name: '', avatar: '', plan: '' });
   const [isProfileLoading, setIsProfileLoading] = useState(false);
@@ -316,6 +317,10 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   const personaLoadRef = useRef<Promise<void> | null>(null);
   const llmSettingsLoadRef = useRef<Promise<void> | null>(null);
   const closeTimerRef = useRef<number[]>([]);
+
+  useEffect(() => {
+    if (isOpen) setActiveTab(initialTab);
+  }, [initialTab, isOpen]);
 
   useEffect(() => {
     mountedRef.current = true;
