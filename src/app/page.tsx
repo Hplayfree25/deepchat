@@ -194,7 +194,7 @@ export default function WelcomePage() {
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-transparent">
       <div className={`flex min-h-0 flex-1 justify-center px-4 sm:px-6 lg:px-10 ${recentFiles.length > 0 ? 'items-start overflow-y-auto py-8 custom-scrollbar' : 'items-center overflow-hidden py-4'}`}>
-        <div className={`mx-auto flex w-full max-w-5xl flex-col items-center gap-5 sm:gap-6 ${recentFiles.length > 0 ? 'justify-start pb-8' : 'max-h-full justify-center overflow-hidden'}`}>
+        <div className={`mx-auto hidden w-full max-w-5xl flex-col items-center gap-5 sm:flex sm:gap-6 ${recentFiles.length > 0 ? 'justify-start pb-8' : 'max-h-full justify-center overflow-hidden'}`}>
           <motion.h1
             initial={{ opacity: 0, y: 12 }}
             animate={{ opacity: 1, y: 0 }}
@@ -285,7 +285,7 @@ export default function WelcomePage() {
         </div>
       </div>
 
-      <div className="shrink-0 px-4 pb-4 sm:px-6 sm:pb-6">
+      <div className="shrink-0 px-[54px] pb-5 sm:px-6 sm:pb-6">
         <div className="mx-auto flex w-full max-w-3xl flex-col gap-2">
           <ChatComposer
             value={input}
@@ -304,7 +304,7 @@ export default function WelcomePage() {
             onRemoveFile={(index) => setAttachedFiles(prev => prev.filter((_, itemIndex) => itemIndex !== index))}
           />
 
-          <p className="hidden text-center text-xs font-semibold text-slate-400 sm:block">
+          <p className="text-center text-[11px] font-bold leading-snug text-[#d1dbe8] sm:text-xs sm:font-semibold sm:text-slate-400">
             DeepChat can make mistakes. Verify important information before using it.
           </p>
         </div>

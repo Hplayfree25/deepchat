@@ -5,13 +5,14 @@ import { usePathname, useRouter } from 'next/navigation';
 import dynamic from 'next/dynamic';
 import Image from 'next/image';
 import {
-  Menu, Bot, Search, Bell, ChevronDown, Edit3, Folder, Download, Share2, MoreVertical,
+  Bot, Search, Bell, ChevronDown, Edit3, Folder, Download, Share2, MoreVertical,
   Settings,
   Trash2, FileText, User, X, Sparkles
 } from 'lucide-react';
 import Sidebar from './Sidebar';
 import RightPanel from './RightPanel';
 import { DeepChatWordmarkSvg } from './brand';
+import ModelSelector from './ui/ModelSelector';
 import { isShortcutEvent, ShortcutCombo, useShortcutLabels } from './shortcuts';
 import toast, { Toaster } from 'react-hot-toast';
 import { getChat, deleteChat, shareChat, getUserProfile, createChat } from '@/app/actions';
@@ -542,52 +543,25 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
 
   return (
     <div className="flex h-dvh flex-col overflow-hidden bg-slate-50 font-sans sm:flex-row dark:bg-slate-950" onTouchStart={handleTouchStart} onTouchEnd={handleTouchEnd} onPointerDown={handlePointerDown} onPointerUp={handlePointerUp}>
-      <div className="relative z-20 flex h-16 shrink-0 items-center justify-between border-b border-slate-100 bg-white px-4 sm:hidden dark:border-slate-800 dark:bg-slate-950">
-        <div className="flex items-center gap-3">
-          <button onClick={() => setMobileMenuOpen(true)} className="p-2 -ml-2 rounded-full hover:bg-slate-100 text-slate-600">
-            <Menu className="w-6 h-6" />
-          </button>
-          <div className="flex items-center gap-2 cursor-pointer" onClick={() => router.push('/')}>
-            <div className="w-8 h-8 bg-indigo-600 rounded-2xl flex items-center justify-center shadow-md shadow-indigo-200">
-              <Bot className="w-5 h-5 text-white" />
-            </div>
-            <DeepChatWordmarkSvg className="h-7 w-[106px] text-slate-900" />
-          </div>
-        </div>
+      <div className="relative z-20 flex h-[54px] shrink-0 items-center bg-white px-4 border-b border-slate-100/50 dark:border-slate-800/50 dark:bg-slate-950 sm:hidden">
         <div className="flex items-center gap-2">
-          <button className="p-2 rounded-full hover:bg-slate-100 text-slate-600">
-            <Search className="w-5 h-5" />
+          <button onClick={() => setMobileMenuOpen(true)} className="flex h-[35px] w-[35px] items-center justify-center rounded-[12px] bg-[#efeeee] active:scale-95 transition-transform dark:bg-slate-800/80" aria-label="Open menu">
+            <div className="flex flex-col items-start gap-[4px]">
+              <span className="h-[2.5px] w-[18px] rounded-full bg-[#303030] dark:bg-slate-200" />
+              <span className="h-[2.5px] w-[12px] rounded-full bg-[#303030] dark:bg-slate-200" />
+            </div>
           </button>
-          <div
-            className="relative"
-            ref={(node) => {
-              notificationRefs.current[0] = node;
-            }}
+          <button
+            type="button"
+            onClick={() => window.dispatchEvent(new Event('openModelSelector'))}
+            className="flex h-[35px] items-center justify-center rounded-[12px] bg-[#efeeee] px-[16px] text-black active:scale-95 transition-transform dark:bg-slate-800/80 dark:text-white"
+            aria-label="Select model"
           >
-            <button
-              onClick={() => { setNotificationOpen(open => !open); setProfileMenuOpen(false); }}
-              className="relative p-2 rounded-full hover:bg-slate-100 text-slate-600 transition-colors"
-            >
-              <Bell className="w-5 h-5" />
-              {unreadNotifications > 0 && (
-                <span className="absolute top-1 right-1 flex h-4 min-w-4 items-center justify-center rounded-full border-2 border-white bg-indigo-500 px-1 text-[9px] font-bold text-white">
-                  {unreadNotifications}
-                </span>
-              )}
-            </button>
-            {isNotificationOpen && renderNotifications()}
-          </div>
-          <div
-            className="relative"
-            ref={(node) => {
-              profileMenuRefs.current[0] = node;
-            }}
-          >
-            <button onClick={() => { setProfileMenuOpen(open => !open); setNotificationOpen(false); }} className="block rounded-full">
-              <Image src={profile.avatar || 'https://api.dicebear.com/7.x/avataaars/svg?seed=Felix'} alt="User" width={32} height={32} unoptimized className="w-8 h-8 rounded-full border border-slate-200 bg-slate-100 object-cover transition-all hover:ring-2 hover:ring-indigo-500/30" />
-            </button>
-            {isProfileMenuOpen && renderProfileMenu()}
-          </div>
+            <span className="font-extrabold text-[15px] tracking-tight text-[#1a1a1a] dark:text-slate-100">DeepChat</span>
+          </button>
+          <button className="flex h-[35px] w-[35px] items-center justify-center rounded-[12px] bg-[#efeeee] text-[#303030] active:scale-95 transition-transform dark:bg-slate-800/80 dark:text-slate-200" aria-label="Search">
+            <Search className="h-[18px] w-[18px]" strokeWidth={2.5} />
+          </button>
         </div>
       </div>
 
@@ -758,6 +732,8 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
           </div>
         </aside>
       </div>
+
+      <ModelSelector renderTrigger={false} mobileOnly />
 
       {isSettingsOpen && <SettingsModal isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} />}
 

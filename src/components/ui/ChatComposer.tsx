@@ -2,6 +2,8 @@
 
 import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import {
+  ArrowUp,
+  ArrowRight,
   BookOpen,
   Code2,
   File as FileIcon,
@@ -10,7 +12,6 @@ import {
   Mic,
   Plus,
   CornerDownLeft,
-  Send,
   Square,
   Video,
   X
@@ -120,7 +121,7 @@ export default function ChatComposer({
   webSearchEnabled = false,
   imageGenerationEnabled = false,
   imageAspectRatio = 'auto',
-  placeholder = 'Message DeepChat...',
+  placeholder = 'Message to DeepChat',
   maxTextareaHeight = 192,
   onChange,
   onSubmit,
@@ -146,11 +147,11 @@ export default function ChatComposer({
   const [isDictationEnabled, setIsDictationEnabled] = useState(() => loadGeneralSettings().dictationEnabled);
   const [recentFiles, setRecentFiles] = useState<ComposerRecentFile[]>([]);
   const [textareaSlot, setTextareaSlot] = useState<TextareaSlot | null>(null);
-  const [textareaHeight, setTextareaHeight] = useState(44);
+  const [textareaHeight, setTextareaHeight] = useState(38);
   const shortcuts = useShortcutLabels();
   const canSubmit = value.trim().length > 0 || attachedFiles.length > 0;
   const isToolComposerActive = webSearchEnabled || imageGenerationEnabled;
-  const textareaTop = textareaSlot ? textareaSlot.top + (isToolComposerActive ? 0 : Math.max(0, (textareaSlot.minHeight - textareaHeight) / 2)) : 0;
+  const textareaTop = textareaSlot ? textareaSlot.top + Math.max(0, (textareaSlot.minHeight - textareaHeight) / 2) : 0;
 
   const measureTextareaSlot = useCallback(() => {
     const composerNode = composerRef.current;
@@ -196,7 +197,7 @@ export default function ChatComposer({
   useLayoutEffect(() => {
     const textareaNode = textareaRef.current;
     if (!textareaNode) return;
-    const minHeight = 44;
+    const minHeight = 38;
     const previousHeight = textareaNode.style.height;
     textareaNode.style.height = 'auto';
     const nextHeight = Math.min(Math.max(textareaNode.scrollHeight, minHeight), maxTextareaHeight);
@@ -436,11 +437,11 @@ export default function ChatComposer({
           animate={{ rotate: isAttachMenuOpen ? 45 : 0 }}
           whileTap={{ scale: 0.92 }}
           transition={{ type: 'spring', stiffness: 420, damping: 28 }}
-          className={`flex h-10 w-10 items-center justify-center rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-50 sm:h-11 sm:w-11 ${isAttachMenuOpen ? 'bg-slate-100 text-slate-950 dark:bg-slate-800 dark:text-slate-100' : 'text-slate-500 hover:bg-slate-100 hover:text-slate-950 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100'}`}
+          className={`flex h-[35px] w-[35px] items-center justify-center rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${isAttachMenuOpen ? 'bg-slate-200/50 text-[#202020] dark:bg-slate-800 dark:text-slate-100' : 'text-[#202020] hover:bg-slate-200/30 dark:text-slate-300 dark:hover:bg-slate-800/40'}`}
           aria-label="Open tools menu"
           aria-expanded={isAttachMenuOpen}
         >
-          <Plus className="h-5 w-5" strokeWidth={2.35} />
+          <Plus className="h-[22px] w-[22px] text-[#202020] dark:text-slate-200" strokeWidth={2.5} />
         </motion.button>
       </Tooltip>
       <AnimatePresence>
@@ -483,24 +484,33 @@ export default function ChatComposer({
   );
 
   const actionControls = (
-    <div className="flex min-w-0 shrink-0 items-center gap-0.5 sm:gap-1">
+    <div className="flex min-w-0 shrink-0 items-center gap-2">
       <div className="hidden min-w-0 max-w-[9rem] sm:block lg:max-w-[13rem]">
-        <ModelSelector />
+        <ModelSelector desktopOnly />
       </div>
       {isDictationEnabled && (
-        <IconButton label={isDictating ? 'Stop dictation' : 'Dictate'} tooltip={isDictating ? 'Stop dictation' : 'Dictate'} shortcut={shortcuts.dictation.join('+')} onClick={toggleDictation}>
-          <Mic className={`h-5 w-5 ${isDictating ? 'text-red-500' : ''}`} strokeWidth={2.35} />
-        </IconButton>
+        <div className="hidden sm:block">
+          <IconButton label={isDictating ? 'Stop dictation' : 'Dictate'} tooltip={isDictating ? 'Stop dictation' : 'Dictate'} shortcut={shortcuts.dictation.join('+')} onClick={toggleDictation}>
+            <Mic className={`h-5 w-5 ${isDictating ? 'text-red-500' : ''}`} strokeWidth={2.35} />
+          </IconButton>
+        </div>
       )}
       <Tooltip label={isBusy ? 'Stop generating' : 'Send prompt'} shortcuts={isBusy ? [] : [{ label: <CornerDownLeft className="h-3.5 w-3.5" strokeWidth={2.4} />, tone: 'icon' }]} side="bottom" align="end">
         <button
           type={isBusy ? 'button' : 'submit'}
           disabled={isUploading || (!isBusy && !canSubmit)}
           onClick={isBusy ? onStop : undefined}
-          className={`flex h-10 w-10 items-center justify-center rounded-full text-white transition-all hover:-translate-y-0.5 disabled:translate-y-0 disabled:bg-slate-300 sm:h-11 sm:w-11 ${isBusy ? 'bg-red-500 hover:bg-red-600' : 'bg-slate-950 hover:bg-indigo-600'}`}
+          className={`flex h-[35px] w-[35px] items-center justify-center rounded-full text-white transition-all disabled:opacity-60 disabled:cursor-not-allowed ${isBusy ? 'bg-red-500 hover:bg-red-600' : 'bg-[#c5d5e9] hover:bg-[#b2c8e3]'}`}
           aria-label={isBusy ? 'Stop generating' : 'Send message'}
         >
-          {isBusy ? <Square className="h-4 w-4 fill-current" strokeWidth={2.35} /> : <Send className="h-5 w-5" strokeWidth={2.35} />}
+          {isBusy ? (
+            <Square className="h-3.5 w-3.5 fill-[#202020] text-[#202020]" strokeWidth={2} />
+          ) : (
+            <>
+              <ArrowUp className="hidden sm:block h-[18px] w-[18px] text-[#202020]" strokeWidth={2.5} />
+              <ArrowRight className="block sm:hidden h-[18px] w-[18px] text-[#202020]" strokeWidth={2.5} />
+            </>
+          )}
         </button>
       </Tooltip>
     </div>
@@ -534,7 +544,7 @@ export default function ChatComposer({
 
       <motion.form
         initial={false}
-        animate={{ minHeight: isToolComposerActive ? Math.max(104, textareaHeight + 64) : Math.max(68, textareaHeight + 12) }}
+        animate={{ minHeight: isToolComposerActive ? Math.max(104, textareaHeight + 64) : Math.max(52, textareaHeight + 8) }}
         transition={{ duration: 0.32, ease: [0.33, 1, 0.68, 1] }}
         ref={composerRef}
         onSubmit={(event) => {
@@ -567,13 +577,13 @@ export default function ChatComposer({
           event.preventDefault();
           uploadFiles(files);
         }}
-        className={`relative rounded-[1.75rem] border bg-white shadow-[0_1px_2px_rgb(15_23_42/0.05),0_12px_34px_rgb(15_23_42/0.08)] transition-[border-color,box-shadow] duration-[340ms] ease-out focus-within:border-slate-300 focus-within:shadow-[0_2px_6px_rgb(15_23_42/0.06),0_18px_42px_rgb(15_23_42/0.11)] sm:rounded-[2rem] dark:bg-slate-950/95 dark:shadow-2xl dark:shadow-black/25 dark:focus-within:border-indigo-400/60 ${isToolComposerActive ? 'px-4 py-3 shadow-[0_2px_10px_rgb(15_23_42/0.08),0_18px_44px_rgb(15_23_42/0.11)] sm:px-5 sm:py-3.5' : 'px-2 py-1.5'} ${isDraggingFile ? 'border-indigo-400 ring-4 ring-indigo-100 dark:ring-indigo-500/15' : isToolComposerActive ? 'border-blue-200 dark:border-blue-400/35' : 'border-slate-200 dark:border-slate-700'}`}
+        className={`relative rounded-full bg-[#efeeee] transition-[background-color] duration-200 ease-out dark:bg-slate-900 ${isToolComposerActive ? 'px-4 py-3 sm:px-5 sm:py-3.5' : 'px-2 py-1'} ${isDraggingFile ? 'ring-2 ring-indigo-400 dark:ring-indigo-500/30' : ''}`}
       >
         <motion.div
           initial={false}
           animate={{
-            minHeight: isToolComposerActive ? Math.max(104, textareaHeight + 56) : Math.max(56, textareaHeight),
-            gridTemplateRows: isToolComposerActive ? `${Math.max(44, textareaHeight)}px 44px` : `0px ${Math.max(56, textareaHeight)}px`,
+            minHeight: isToolComposerActive ? Math.max(104, textareaHeight + 56) : Math.max(44, textareaHeight),
+            gridTemplateRows: isToolComposerActive ? `${Math.max(44, textareaHeight)}px 44px` : `0px ${Math.max(44, textareaHeight)}px`,
             rowGap: isToolComposerActive ? 8 : 0
           }}
           transition={{ duration: 0.32, ease: [0.33, 1, 0.68, 1] }}
@@ -602,7 +612,7 @@ export default function ChatComposer({
         <textarea
           ref={textareaRef}
           placeholder={placeholder}
-          className={`absolute z-20 resize-none bg-transparent text-[16px] font-medium leading-snug text-slate-800 outline-none placeholder:text-slate-400 custom-scrollbar transition-[left,top,width,height,padding] duration-[280ms] ease-[cubic-bezier(0.33,1,0.68,1)] dark:text-slate-100 dark:placeholder:text-slate-500 ${isToolComposerActive ? 'px-0 py-2' : 'px-1 py-2.5'}`}
+          className={`absolute z-20 resize-none bg-transparent text-[16px] font-medium leading-snug text-[#202020] outline-none placeholder:text-[#888888] custom-scrollbar transition-[left,top,width,height,padding] duration-[280ms] ease-[cubic-bezier(0.33,1,0.68,1)] dark:text-slate-100 dark:placeholder:text-slate-500 ${isToolComposerActive ? 'px-0 py-2' : 'px-1 py-2'}`}
           style={{
             left: textareaSlot ? `${textareaSlot.left}px` : 0,
             top: `${textareaTop}px`,
