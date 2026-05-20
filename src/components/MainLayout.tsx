@@ -110,6 +110,7 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
   const searchInputRef = useRef<HTMLInputElement>(null);
   const notificationRefs = useRef<Array<HTMLDivElement | null>>([]);
   const profileMenuRefs = useRef<Array<HTMLDivElement | null>>([]);
+  const mobileSwipeStartRef = useRef<{ x: number; y: number; edge: boolean } | null>(null);
 
   const [isSidebarOpen, setSidebarOpen] = useState(() => loadStoredBoolean('isSidebarOpen', pathname.startsWith('/chat')));
   const [isMobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -272,6 +273,40 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
     window.addEventListener('keydown', handleShortcut);
     return () => window.removeEventListener('keydown', handleShortcut);
   }, [handleCreateChat]);
+
+  useEffect(() => {
+    const handleTouchStart = (event: TouchEvent) => {
+      if (window.innerWidth >= 640 || event.touches.length !== 1) return;
+      const touch = event.touches[0];
+      mobileSwipeStartRef.current = {
+        x: touch.clientX,
+        y: touch.clientY,
+        edge: touch.clientX <= 28
+      };
+    };
+
+    const handleTouchEnd = (event: TouchEvent) => {
+      const start = mobileSwipeStartRef.current;
+      mobileSwipeStartRef.current = null;
+      if (!start || window.innerWidth >= 640 || event.changedTouches.length !== 1) return;
+      const touch = event.changedTouches[0];
+      const deltaX = touch.clientX - start.x;
+      const deltaY = Math.abs(touch.clientY - start.y);
+      if (!isMobileMenuOpen && start.edge && deltaX > 72 && deltaY < 64) {
+        setMobileMenuOpen(true);
+      }
+      if (isMobileMenuOpen && deltaX < -72 && deltaY < 64) {
+        setMobileMenuOpen(false);
+      }
+    };
+
+    window.addEventListener('touchstart', handleTouchStart, { passive: true });
+    window.addEventListener('touchend', handleTouchEnd, { passive: true });
+    return () => {
+      window.removeEventListener('touchstart', handleTouchStart);
+      window.removeEventListener('touchend', handleTouchEnd);
+    };
+  }, [isMobileMenuOpen]);
 
   const [chatTitle, setChatTitle] = useState('');
   const [folderName, setFolderName] = useState('');

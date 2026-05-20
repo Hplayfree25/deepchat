@@ -6,10 +6,8 @@ import Image from 'next/image';
 import { getChats, togglePinChat, archiveChat, deleteChat } from '@/app/actions';
 import toast from 'react-hot-toast';
 import {
-  Bot, Plus, Compass, MessageSquare, LayoutTemplate,
-  Book, Puzzle, ChevronDown, Star, Pin, X, MoreVertical, Archive, Trash2, FileText, User, Brain
+  ChevronDown, Pin, MoreVertical, Archive, Trash2, FileText, User, Brain
 } from 'lucide-react';
-import { DeepChatWordmarkSvg } from './brand';
 import { useShortcutLabels } from './shortcuts';
 import Tooltip from './ui/Tooltip';
 import type { SettingsTab } from './SettingsModal';
@@ -42,6 +40,7 @@ export default function Sidebar({ isOpen, setIsOpen, isMobileOpen, setMobileOpen
   const shortcuts = useShortcutLabels();
   const [chats, setChats] = useState<ChatItem[]>([]);
   const [showAllRecent, setShowAllRecent] = useState(false);
+  const [isMoreOpen, setIsMoreOpen] = useState(false);
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const [isPinnedOpen, setIsPinnedOpen] = useState(() => loadStoredBoolean('isPinnedOpen', true));
   const [isRecentOpen, setIsRecentOpen] = useState(() => loadStoredBoolean('isRecentOpen', true));
@@ -186,6 +185,50 @@ export default function Sidebar({ isOpen, setIsOpen, isMobileOpen, setMobileOpen
     );
   };
 
+  const renderMobileProfilePill = () => {
+    const avatarSrc = profile.avatar || 'https://api.dicebear.com/7.x/avataaars/svg?seed=Felix';
+    return (
+      <div className="relative" ref={(node) => { profileMenuRefs.current[1] = node; }}>
+        <div className="flex h-8 items-center gap-1 rounded-full bg-[#e7e5e5] px-1.5">
+          <button
+            type="button"
+            onClick={() => handleOpenSettings('general')}
+            className="flex h-6 w-6 items-center justify-center rounded-full text-black transition-colors hover:bg-black/5 active:scale-95"
+            aria-label="Open settings"
+          >
+            <IconifyFill icon="material-symbols:settings-rounded" className="h-4 w-4" />
+          </button>
+          <button
+            type="button"
+            onClick={() => setProfileMenuOpen(open => !open)}
+            className="flex h-6 w-6 items-center justify-center overflow-hidden rounded-full bg-[#efe7ff] ring-1 ring-black/5 active:scale-95"
+            aria-label="Open profile menu"
+            aria-expanded={profileMenuOpen}
+          >
+            <Image src={avatarSrc} alt="User" width={24} height={24} unoptimized className="h-6 w-6 rounded-full object-cover" />
+          </button>
+        </div>
+        {profileMenuOpen && (
+          <div className="absolute right-0 top-10 z-50 w-56 overflow-hidden rounded-2xl border border-black/5 bg-[#ffffff] py-1 shadow-xl shadow-black/10">
+            <div className="border-b border-black/5 px-3 py-3">
+              <p className="truncate text-sm font-semibold text-black">{profile.name || 'Guest'}</p>
+              <p className="truncate text-xs font-medium text-[#8f8989]">{profile.plan || 'No Plan'}</p>
+            </div>
+            <button type="button" onClick={() => handleOpenSettings('profile')} className="flex w-full items-center gap-2.5 px-3 py-2.5 text-left text-sm font-medium text-black transition-colors hover:bg-black/5">
+              <User className="h-4 w-4 shrink-0" strokeWidth={1.9} /> Profile
+            </button>
+            <button type="button" onClick={() => handleOpenSettings('personality')} className="flex w-full items-center gap-2.5 px-3 py-2.5 text-left text-sm font-medium text-black transition-colors hover:bg-black/5">
+              <Brain className="h-4 w-4 shrink-0" strokeWidth={1.9} /> Personalization
+            </button>
+            <button type="button" onClick={handleOpenDocs} className="flex w-full items-center gap-2.5 px-3 py-2.5 text-left text-sm font-medium text-black transition-colors hover:bg-black/5">
+              <FileText className="h-4 w-4 shrink-0" strokeWidth={1.9} /> Docs
+            </button>
+          </div>
+        )}
+      </div>
+    );
+  };
+
   return (
     <>
       <div className={`hidden min-h-0 shrink-0 flex-col items-center bg-white py-2 text-black transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] sm:flex dark:bg-slate-950 dark:text-white ${isOpen ? 'w-0 overflow-hidden opacity-0 pointer-events-none' : 'w-[44px] opacity-100'}`}>
@@ -324,97 +367,137 @@ export default function Sidebar({ isOpen, setIsOpen, isMobileOpen, setMobileOpen
         </div>
       </div>
 
-      <div className={`fixed inset-0 z-50 flex transition sm:hidden ${isMobileOpen ? 'pointer-events-auto' : 'pointer-events-none'}`}>
-          <div className={`absolute inset-0 bg-slate-900/60 backdrop-blur-sm transition-opacity duration-300 ${isMobileOpen ? 'opacity-100' : 'opacity-0'}`} onClick={() => setMobileOpen(false)}></div>
-          <div className={`relative flex h-full w-[min(88vw,320px)] flex-col overflow-hidden rounded-r-3xl bg-[#0f172a] shadow-2xl transition-transform duration-300 ease-out ${isMobileOpen ? 'translate-x-0' : '-translate-x-full'}`}>
-            <div className="p-4 flex items-center justify-between">
-              <div className="flex items-center gap-2 cursor-pointer" onClick={() => { router.push('/'); setMobileOpen(false); }}>
-                <div className="w-8 h-8 bg-indigo-600 rounded-2xl flex items-center justify-center">
-                  <Bot className="w-5 h-5 text-white" />
+      <div className={`fixed inset-0 z-50 h-dvh sm:hidden ${isMobileOpen ? 'pointer-events-auto' : 'pointer-events-none'}`} aria-hidden={!isMobileOpen}>
+        <div className={`relative flex h-dvh w-screen flex-col overflow-hidden bg-[#ffffff] text-black shadow-2xl transition-transform duration-500 ease-[cubic-bezier(0.22,1,0.36,1)] will-change-transform ${isMobileOpen ? 'translate-x-0' : '-translate-x-full'}`}>
+          <div className="flex h-14 shrink-0 items-center justify-between px-4">
+            <button type="button" className="text-[20px] font-bold leading-none tracking-normal text-black" onClick={() => { router.push('/'); setMobileOpen(false); }}>
+              DeepChat
+            </button>
+            {renderMobileProfilePill()}
+          </div>
+
+          <div className="min-h-0 flex-1 overflow-y-auto px-7 pb-32 pt-6 custom-scrollbar">
+            <div className="space-y-5">
+              <MobileMenuButton label="Project" icon="solar:folder-bold" onClick={() => toast('Projects are coming soon.')} />
+              <MobileMenuButton label="Images" icon="material-symbols:image-rounded" onClick={() => toast('Images are available from the composer image tool.')} />
+              <button
+                type="button"
+                onClick={() => setIsMoreOpen(open => !open)}
+                className="flex h-9 w-full items-center gap-7 text-left text-black transition-colors active:scale-[0.99]"
+                aria-expanded={isMoreOpen}
+              >
+                <IconifyFill icon="material-symbols:more-horiz" className="h-[18px] w-[18px] shrink-0" />
+                <span className="text-[20px] font-normal leading-none">More</span>
+                <ChevronDown className={`ml-auto h-4 w-4 text-[#8f8989] transition-transform ${isMoreOpen ? 'rotate-180' : ''}`} strokeWidth={1.8} />
+              </button>
+              {isMoreOpen && (
+                <div className="ml-[46px] space-y-1">
+                  <MobileMoreButton label="Library" onClick={() => { setMobileOpen(false); window.dispatchEvent(new Event('openFileLibrary')); }} />
+                  <MobileMoreButton label="Search" onClick={() => { setMobileOpen(false); onOpenSearch(); }} />
+                  <MobileMoreButton label="Action menu" onClick={() => { setMobileOpen(false); onOpenActions(); }} />
+                  <MobileMoreButton label="Docs" onClick={handleOpenDocs} />
                 </div>
-                <DeepChatWordmarkSvg className="h-7 w-[105px] text-white" />
-              </div>
-              <button onClick={() => setMobileOpen(false)} className="p-1.5 rounded-xl hover:bg-slate-800 text-slate-400">
-                <X className="w-5 h-5" />
-              </button>
+              )}
             </div>
-            
-            <div className="flex-1 overflow-y-auto p-3 space-y-4 text-slate-300">
-              <button onClick={handleNewChat} className="flex w-full items-center justify-center gap-2 rounded-2xl bg-indigo-600 px-4 py-3 font-medium text-white shadow-lg shadow-indigo-600/20">
-                <Plus className="w-5 h-5" /> New Chat
+
+            <div className="mt-8">
+              <button
+                type="button"
+                className="flex h-8 w-full items-center gap-1.5 text-left text-[18px] font-semibold leading-none text-[#9b9696] transition-colors hover:text-black"
+                onClick={togglePinned}
+              >
+                <span>Pin chat</span>
+                <ChevronDown className={`h-3.5 w-3.5 transition-transform ${isPinnedOpen ? '' : '-rotate-90'}`} strokeWidth={1.75} />
               </button>
-              
-              <div className="space-y-1">
-                <NavItem icon={<Compass className="w-5 h-5" />} label="Explore" />
-                <NavItem icon={<MessageSquare className="w-5 h-5" />} label="Threads" />
-                <NavItem icon={<LayoutTemplate className="w-5 h-5" />} label="Templates" />
-                <NavItem icon={<Book className="w-5 h-5" />} label="Knowledge Base" />
-                <NavItem icon={<Puzzle className="w-5 h-5" />} label="Integrations" />
-              </div>
-              
-              <div className="mt-6">
-                <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2 px-3">Pinned</div>
-                <div className="space-y-0.5">
+              {isPinnedOpen && (
+                <div className="mt-2 space-y-1">
                   {pinnedChats.map((chat) => (
-                    <ChatMenuItem 
-                      key={chat.id} 
+                    <ChatMenuItem
+                      key={chat.id}
                       chat={chat}
                       active={pathname === `/chat/${chat.id}`}
-                      icon={<Star className="w-4 h-4 flex-shrink-0 text-yellow-500" />}
                       onAction={handleAction}
                       onClick={() => { router.push(`/chat/${chat.id}`); setMobileOpen(false); }}
                     />
                   ))}
                   {pinnedChats.length === 0 && (
-                    <div className="text-xs text-slate-500 px-3 py-1">No pinned chats</div>
+                    <div className="px-0 py-1 text-sm font-medium text-[#aaa4a4]">No pinned chats</div>
                   )}
                 </div>
-              </div>
+              )}
+            </div>
 
-              <div className="mt-6">
-                <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2 px-3">Recent</div>
-                <div className="space-y-0.5">
+            <div className="mt-5">
+              <button
+                type="button"
+                className="flex h-8 w-full items-center gap-1.5 text-left text-[18px] font-semibold leading-none text-[#9b9696] transition-colors hover:text-black"
+                onClick={toggleRecent}
+              >
+                <span>Recent</span>
+                <ChevronDown className={`h-3.5 w-3.5 transition-transform ${isRecentOpen ? '' : '-rotate-90'}`} strokeWidth={1.75} />
+              </button>
+              {isRecentOpen && (
+                <div className="mt-2 space-y-1">
                   {visibleRecent.map((chat) => (
-                    <ChatMenuItem 
-                      key={chat.id} 
+                    <ChatMenuItem
+                      key={chat.id}
                       chat={chat}
                       active={pathname === `/chat/${chat.id}`}
-                      icon={<Image src={profile.avatar} width={20} height={20} unoptimized className="w-5 h-5 rounded-full border border-slate-700 flex-shrink-0 bg-slate-100 object-cover" alt="" />}
                       onAction={handleAction}
                       onClick={() => { router.push(`/chat/${chat.id}`); setMobileOpen(false); }}
                     />
                   ))}
                   {unpinnedChats.length > 4 && (
-                    <button 
+                    <button
                       onClick={() => setShowAllRecent(!showAllRecent)}
-                      className="w-full text-left px-3 py-2 text-xs font-semibold text-indigo-400 hover:text-indigo-300 transition-colors mt-1"
+                      className="w-full rounded-xl py-2 text-left text-sm font-medium text-[#8f8989] transition-colors hover:text-black"
                     >
                       {showAllRecent ? 'Show less' : `Show ${unpinnedChats.length - 4} more`}
                     </button>
                   )}
                   {unpinnedChats.length === 0 && (
-                    <div className="text-xs text-slate-500 px-3 py-2">No recent chats</div>
+                    <div className="px-0 py-2 text-sm font-medium text-[#aaa4a4]">No recent chats</div>
                   )}
                 </div>
-              </div>
-            </div>
-            <div className="p-4 border-t border-slate-800">
-               {renderProfile('mobile', 1)}
+              )}
             </div>
           </div>
+
+          <button
+            type="button"
+            onClick={handleNewChat}
+            className="absolute bottom-6 right-5 z-10 flex h-12 items-center gap-2 rounded-[18px] bg-[#d9d9d9] px-4 text-[18px] font-normal text-black shadow-sm transition-transform active:scale-95"
+          >
+            <IconifyFill icon="streamline-flex:pencil-square-solid" className="h-[16px] w-[16px]" />
+            <span>New Chat</span>
+          </button>
         </div>
+      </div>
     </>
   );
 }
 
-function NavItem({ icon, label, badge, onClick }: { icon: React.ReactNode, label: string, badge?: string, onClick?: () => void }) {
+function MobileMenuButton({ icon, label, onClick }: { icon: string; label: string; onClick: () => void }) {
   return (
-    <button onClick={onClick} className="w-full flex items-center justify-between px-3 py-2.5 rounded-2xl hover:bg-slate-800 text-slate-300 hover:text-white transition-colors group">
-      <div className="flex items-center gap-3">
-        <span className="text-slate-400 group-hover:text-indigo-400 transition-colors">{icon}</span>
-        <span className="font-medium text-sm">{label}</span>
-      </div>
-      {badge && <span className="bg-indigo-600 text-white text-[10px] font-bold px-2 py-0.5 rounded-full">{badge}</span>}
+    <button
+      type="button"
+      onClick={onClick}
+      className="flex h-9 w-full items-center gap-7 text-left text-black transition-colors active:scale-[0.99]"
+    >
+      <IconifyFill icon={icon} className="h-[18px] w-[18px] shrink-0" />
+      <span className="text-[20px] font-normal leading-none">{label}</span>
+    </button>
+  );
+}
+
+function MobileMoreButton({ label, onClick }: { label: string; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="block w-full rounded-xl px-2 py-2 text-left text-[15px] font-medium text-[#5f5a5a] transition-colors hover:bg-black/5 hover:text-black"
+    >
+      {label}
     </button>
   );
 }
@@ -520,7 +603,7 @@ function ExpandedChatItem({ chat, active, onAction, onClick }: { chat: ChatItem;
   );
 }
 
-function ChatMenuItem({ chat, active, icon, onAction, onClick }: { chat: ChatItem, active?: boolean, icon: React.ReactNode, onAction: (action: string, id: string) => void, onClick?: () => void }) {
+function ChatMenuItem({ chat, active, icon, onAction, onClick }: { chat: ChatItem, active?: boolean, icon?: React.ReactNode, onAction: (action: string, id: string) => void, onClick?: () => void }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -536,29 +619,29 @@ function ChatMenuItem({ chat, active, icon, onAction, onClick }: { chat: ChatIte
 
   return (
     <div className="relative group" ref={menuRef}>
-      <button onClick={onClick} className={`w-full flex items-center justify-between px-3 py-2 rounded-2xl transition-colors ${active ? 'bg-indigo-600/10 text-indigo-400' : 'hover:bg-slate-800 text-slate-400 hover:text-slate-200'}`}>
-        <div className="flex items-center gap-3 min-w-0 pr-6">
+      <button onClick={onClick} className={`flex h-9 w-full items-center justify-between rounded-xl py-1.5 pr-9 text-left transition-colors ${active ? 'bg-black/5 text-black' : 'text-black hover:bg-black/5'}`}>
+        <div className="flex min-w-0 items-center gap-2">
           {icon}
-          <span className={`font-medium text-sm truncate ${active ? 'text-indigo-300' : ''}`}>{chat.title}</span>
+          <span className="truncate text-[16px] font-normal leading-none">{chat.title}</span>
         </div>
       </button>
       
       <div className={`absolute right-2 top-1/2 -translate-y-1/2 ${menuOpen ? 'flex' : 'hidden group-hover:flex'}`}>
-        <button onClick={(e) => { e.stopPropagation(); setMenuOpen(!menuOpen); }} className="p-1.5 rounded-lg hover:bg-slate-700 text-slate-400 hover:text-white">
-          <MoreVertical className="w-4 h-4" />
+        <button onClick={(e) => { e.stopPropagation(); setMenuOpen(!menuOpen); }} className="rounded-lg p-1.5 text-[#8f8989] transition-colors hover:bg-black/5 hover:text-black">
+          <MoreVertical className="h-4 w-4" strokeWidth={1.75} />
         </button>
       </div>
       
       {menuOpen && (
-        <div className="absolute right-2 top-8 z-50 w-32 bg-slate-800 border border-slate-700 rounded-xl shadow-xl overflow-hidden py-1">
-          <button onClick={(e) => { e.stopPropagation(); setMenuOpen(false); onAction('pin', chat.id); }} className="w-full flex items-center gap-2 px-3 py-2 text-xs text-slate-300 hover:bg-slate-700 hover:text-white">
-            <Pin className="w-3.5 h-3.5" /> {chat.pinned ? 'Unpin' : 'Pin'}
+        <div className="absolute right-2 top-8 z-50 w-32 overflow-hidden rounded-xl border border-black/5 bg-[#ffffff] py-1 shadow-xl shadow-black/10">
+          <button onClick={(e) => { e.stopPropagation(); setMenuOpen(false); onAction('pin', chat.id); }} className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs font-medium text-black transition-colors hover:bg-black/5">
+            <Pin className="h-3.5 w-3.5" /> {chat.pinned ? 'Unpin' : 'Pin'}
           </button>
-          <button onClick={(e) => { e.stopPropagation(); setMenuOpen(false); onAction('archive', chat.id); }} className="w-full flex items-center gap-2 px-3 py-2 text-xs text-slate-300 hover:bg-slate-700 hover:text-white">
-            <Archive className="w-3.5 h-3.5" /> Archive
+          <button onClick={(e) => { e.stopPropagation(); setMenuOpen(false); onAction('archive', chat.id); }} className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs font-medium text-black transition-colors hover:bg-black/5">
+            <Archive className="h-3.5 w-3.5" /> Archive
           </button>
-          <button onClick={(e) => { e.stopPropagation(); setMenuOpen(false); onAction('delete', chat.id); }} className="w-full flex items-center gap-2 px-3 py-2 text-xs text-red-400 hover:bg-slate-700 hover:text-red-300">
-            <Trash2 className="w-3.5 h-3.5" /> Delete
+          <button onClick={(e) => { e.stopPropagation(); setMenuOpen(false); onAction('delete', chat.id); }} className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs font-medium text-red-600 transition-colors hover:bg-red-50">
+            <Trash2 className="h-3.5 w-3.5" /> Delete
           </button>
         </div>
       )}
