@@ -1,179 +1,153 @@
-# DeepChat
-
 <div align="center">
+  <img src="./public/icon.svg" alt="DeepChat Logo" width="120" height="120" />
 
-![Project Status](https://img.shields.io/badge/status-under%20development-111827?style=flat-square)
-![Next.js](https://img.shields.io/badge/Next.js-16.2.4-000000?style=flat-square&logo=nextdotjs)
-![React](https://img.shields.io/badge/React-19.2.4-087EA4?style=flat-square&logo=react&logoColor=white)
-![TypeScript](https://img.shields.io/badge/TypeScript-5.x-3178C6?style=flat-square&logo=typescript&logoColor=white)
-![Tailwind CSS](https://img.shields.io/badge/Tailwind%20CSS-4.x-38BDF8?style=flat-square&logo=tailwindcss&logoColor=white)
-![pnpm](https://img.shields.io/badge/pnpm-ready-F69220?style=flat-square&logo=pnpm&logoColor=white)
-![License](https://img.shields.io/badge/license-MIT-16A34A?style=flat-square)
+  # DeepChat
 
-**An under-development AI chat agent interface inspired by ChatGPT and OpenClaw.**
+  <p align="center">
+    <strong>A next-generation, local-first AI chat workspace and agent environment.</strong>
+  </p>
 
-DeepChat is a modern, extensible, agent-oriented chat application built with Next.js, React, and TypeScript. It is designed for AI conversations, model experimentation, personalized assistant behavior, memory-assisted context, code workflows, and a polished local-first chat experience.
+  <p align="center">
+    <a href="https://img.shields.io/badge/status-active_development-blue?style=for-the-badge"><img src="https://img.shields.io/badge/status-active_development-blue?style=for-the-badge" alt="Status" /></a>
+    <a href="https://nextjs.org/"><img src="https://img.shields.io/badge/Next.js-16.2.4-black?style=for-the-badge&logo=nextdotjs" alt="Next.js" /></a>
+    <a href="https://react.dev/"><img src="https://img.shields.io/badge/React-19.2.4-087EA4?style=for-the-badge&logo=react&logoColor=white" alt="React" /></a>
+    <a href="https://www.typescriptlang.org/"><img src="https://img.shields.io/badge/TypeScript-5.x-3178C6?style=for-the-badge&logo=typescript&logoColor=white" alt="TypeScript" /></a>
+    <a href="https://tailwindcss.com/"><img src="https://img.shields.io/badge/Tailwind_CSS-4.x-38BDF8?style=for-the-badge&logo=tailwindcss&logoColor=white" alt="Tailwind CSS" /></a>
+    <a href="https://pnpm.io/"><img src="https://img.shields.io/badge/pnpm-ready-F69220?style=for-the-badge&logo=pnpm&logoColor=white" alt="pnpm" /></a>
+    <a href="./LICENSE"><img src="https://img.shields.io/badge/license-MIT-16A34A?style=for-the-badge" alt="MIT License" /></a>
+  </p>
 
+  <p align="center">
+    <a href="./README_id.md"><strong>Bahasa Indonesia (README_id.md)</strong></a>
+  </p>
 </div>
 
-## Overview
+---
 
-DeepChat is an AI chat agent application created for people who want a refined conversational interface with room for experimentation. The project is inspired by the interaction model of ChatGPT and the agent-oriented workflow direction of OpenClaw, while still developing its own structure, interface decisions, and local-first runtime behavior.
+DeepChat is a feature-rich, local-first conversational workspace built with Next.js, React, and TypeScript. Inspired by the dynamic UX of ChatGPT and the agent-focused adaptability of OpenClaw, DeepChat provides a polished interface for advanced model experimentation, long-term memory extraction, interactive sandboxed code execution, and custom assistant behavior.
 
-The application is currently under active development. The goal is to provide a capable AI chat workspace that feels familiar enough for everyday use, but flexible enough for advanced workflows such as custom model connections, assistant persona tuning, contextual memory, file-assisted conversations, code preview, and agent-style task execution.
+> [!WARNING]
+> This application is currently under **active development**. Some features may change, break, or improve as the repository undergoes refinement toward stability.
 
-DeepChat is not presented as a finished production platform yet. It is a work-in-progress AI chat client and agent interface. The repository is being shaped toward a more complete, stable, and production-ready experience over time.
+---
 
-## Project Description
+## Key Capabilities
 
-DeepChat is a Next.js AI chat application for building and testing a modern conversational AI experience. It combines a ChatGPT-inspired user interface with agent-focused capabilities such as model selection, memory references, persona configuration, code-oriented workflows, and local runtime data handling.
+### Premium Mobile-First UI/UX
+- Fully responsive interface designed layout-first for mobile devices, then seamlessly scaled for desktops.
+- Sleek, modern design with glassmorphism touches, fluid animations powered by Framer Motion, and absolute focus on usability.
+- Custom-tailored dark and light themes, collapsible sidebars, and customizable control panels.
 
-The project is intended to become a clean, extensible AI chat agent workspace for developers, makers, researchers, and users who want a more customizable interface for interacting with large language models. DeepChat is suitable as a foundation for experimenting with AI assistants, multi-model chat, prompt behavior, personal context, and workflow-driven conversations.
+### Semantic Long-Term Memory & Context
+- Automated background memory extraction to build assistant understanding of the user.
+- Persistent structured memories categorized by importance, time, and content type.
+- Vectorizable history tracking to support semantic recall across multiple chat sessions.
 
-## Screenshots
+### Deep Model Context Protocol (MCP) Integration
+- Direct integration with Model Context Protocol servers to equip models with local and network tools.
+- Granular MCP permissions, runtime tool configuration, and security gates.
+- Built-in provider switcher with native support for the official Google GenAI SDK (Gemini models).
 
-### 1. Home Screen
+### Rich Developer Workflows & Sandboxes
+- Full markdown layout with extensive LaTeX mathematical formula support (KaTeX) and GFM rendering.
+- Syntax highlighting powered by Shiki for production-grade code readability.
+- Embedded sandboxed execution environments to build, preview, and test generated code inside execution sessions.
 
-![DeepChat light theme home screen](./docs/screenshots/deepchat-home.png)
+### Local-First & Privacy Conscious
+- Complete local persistence powered by SQLite via better-sqlite3 and type-safe schema mapping via Drizzle ORM.
+- Private document directories where chats, logs, generated files, and profile details remain strictly on your local machine.
 
-### 2. Chat Screen
+---
 
-![DeepChat light theme chat screen](./docs/screenshots/deepchat-chat.png)
+## Getting Started (Windows)
 
-## Technical Stack
+DeepChat is pre-configured with a powerful local launcher for Windows. You do not need to deal with manual console setups, dependency tracking, or server management.
 
-| Layer | Technology | Role |
-| --- | --- | --- |
-| Framework | Next.js 16.2.4 | App Router, server actions, API routes, production build pipeline |
-| Runtime UI | React 19.2.4 | Interactive chat workspace, composer state, panels, settings modal |
-| Language | TypeScript 5.x | Typed application contracts and safer refactoring |
-| Styling | Tailwind CSS 4 | Responsive interface styling and theme-aware surfaces |
-| Persistence | SQLite via better-sqlite3 | Local chat, message, memory, attachment, and shared snapshot storage |
-| ORM | Drizzle ORM | Database schema and typed database access layer support |
-| AI Provider SDK | Google GenAI SDK | Gemini-oriented model and generation workflows |
-| Markdown | react-markdown, remark-gfm, remark-math, rehype-katex | Rich assistant output, GFM, and math rendering |
-| Code Rendering | Shiki | Syntax highlighting for generated code blocks |
-| Motion | Framer Motion | Interface transitions and lightweight interaction polish |
+### The Easiest Way: deepchat.bat
 
-## Core Capabilities
+To launch DeepChat, simply double-click the **deepchat.bat** file in the root folder of the project.
 
-- ChatGPT-inspired home screen, chat view, sidebar, right panel, and reusable composer.
-- Model selection and provider configuration for LLM experimentation.
-- Local-first data handling for chats, user profile, memories, temporary files, and API connection metadata.
-- Persona and memory modules for personalized assistant behavior.
-- Markdown, math, and syntax-highlighted code response rendering.
-- Code workflow utilities for preview, runner detection, runner security, and execution API routes.
-- API routes for chat generation, model listing, verification, memory extraction, code preview, code run, and code sessions.
-- Settings surfaces for general preferences, profile, personality, connections, notifications, MCP, tools, agent behavior, and data controls.
+#### What does the launcher do behind the scenes?
+1. **Automated Directory Bootstrapping:** Safely creates the local file structure inside `data/` for chats, memories, temp artifacts, and logs.
+2. **Dependency Manager:** Automatically checks if local packages are present. If missing, it runs a silent installation using `pnpm@10` tailored with specific build exclusions.
+3. **Smart Incremental Compilation:** Compares modification timestamps of code in `src/`, `public/`, and configuration files against your latest build. If changes are detected, it builds the application; otherwise, it skips straight to runtime.
+4. **Port Allocation & PID Resolution:** Validates port availability. If port 3000 is already in use by a previous DeepChat instance, it presents options to hot-reload, kill the occupying PID, or launch immediately in the browser.
+5. **Network / LAN Auto-Discovery:** Resolves and displays both your local computer address and your local network IP (LAN), allowing you to interact with the chat from your phone, tablet, or secondary devices.
+6. **Log Redirection & Log Filtering:** Filters out generic server requests while highlighting critical system operations and `[AI]` reasoning in clear color-coded console logs. Automatically launches the browser once server is ready.
 
-## Repository Structure
+---
 
-```text
-deepchat/
-+-- data/
-|   +-- chat/
-|   +-- llm/
-|   +-- temp/
-|   +-- user/
-+-- docs/
-|   +-- screenshots/
-+-- public/
-+-- scripts/
-+-- src/
-|   +-- app/
-|   +-- components/
-|   +-- lib/
-+-- package.json
-+-- next.config.ts
-+-- tsconfig.json
-+-- README.md
-```
+## Manual & Advanced Commands
 
-## Installation
+For developers who prefer terminal controls, DeepChat supports standardized scripts via pnpm:
 
-Use Node.js 20 or newer and pnpm.
-
+### Package Installation
+Provide this instruction to install dependencies manually:
 ```bash
 pnpm install
 ```
 
-Start the development server:
-
+### Local Development Server
+Launches the development instance with Turbopack for near-instant hot reloading:
 ```bash
 pnpm dev
 ```
 
-Open:
-
-```text
-http://localhost:3000
-```
-
-## Production Commands
-
-Create a production build:
-
+### Production Operations
+Generate the production bundle:
 ```bash
 pnpm build
 ```
-
-Start the production server:
-
+Launch the compiled production bundle:
 ```bash
 pnpm start
 ```
-
-Run linting:
-
+Perform code linting to ensure compliance with production quality:
 ```bash
 pnpm lint
 ```
 
-## Runtime Data
+---
 
-DeepChat stores runtime data under `data/`. This directory can contain private chats, uploaded files, memories, profile data, model connection metadata, logs, SQLite files, and temporary artifacts.
-
-Keep runtime data out of Git. Use local files for development and deployment secrets or managed storage for production environments.
-
-## Environment
-
-Provider credentials should be stored in local environment files or deployment secrets. Do not commit API keys, tokens, private keys, local database files, chat exports, uploaded documents, or generated runtime state.
-
-Recommended local file:
+## Workspace Architecture
 
 ```text
-.env.local
+deepchat/
+├── data/                       # Local runtime environment (gitignored)
+│   ├── chat/                   # User sessions and conversational snapshots
+│   ├── llm/                    # Connection configurations and prompt profiles
+│   ├── temp/                   # Session files and temporary downloads
+│   ├── user/                   # Memory tables and user metadata
+│   ├── backups/                # Periodic database and configuration backups
+│   └── logs/                   # System runtime logs and event histories
+├── docs/                       # Technical documentations and workspace guides
+│   └── screenshots/            # Visual layout references
+├── public/                     # Static assets
+│   ├── icon.svg                # Main application logo
+│   └── icons/                  # Modular icon packages
+├── scripts/                    # Automation scripts
+│   └── deepchat-launcher.ps1   # PowerShell launcher backing deepchat.bat
+├── src/                        # Primary React/Next.js codebase
+│   ├── app/                    # Routing pages, layouts, actions, and styles
+│   ├── components/             # Reusable UX modules and widgets
+│   └── lib/                    # MCP settings, database layers, and generation scripts
+├── package.json                # Project manifest and package configurations
+├── tsconfig.json               # TypeScript rules and compilation schema
+└── deepchat.bat                # Windows interactive execution entrypoint
 ```
 
-## Production Notes
+---
 
-Before deploying DeepChat publicly, review authentication, authorization, rate limiting, provider key storage, database persistence, file upload boundaries, code execution safeguards, logging policy, backup strategy, and privacy requirements.
+## Status & Future Directions
 
-The app can be built with `pnpm build`, but the project status remains under development.
+This application is actively developing under the workspace structure of a localized AI. Future releases target:
+- Deepening multi-model orchestration.
+- Advanced vector database capabilities for semantic long-term memory retrieval.
+- Comprehensive tool pipelines and external execution security gates.
+- Polished integrations for the Model Context Protocol ecosystem.
 
-## GitHub Repository Description
-
-Modern AI chat agent interface inspired by ChatGPT and OpenClaw, built with Next.js, React, TypeScript, SQLite, memory-assisted context, model configuration, and code workflow tooling.
-
-## Suggested Topics
-
-```text
-ai-chat
-ai-agent
-chatgpt-inspired
-openclaw-inspired
-nextjs
-react
-typescript
-llm
-local-first
-memory
-persona
-code-assistant
-sqlite
-tailwindcss
-```
+---
 
 ## License
 
-DeepChat is licensed under the MIT License. See [LICENSE](./LICENSE).
+DeepChat is open-source software licensed under the MIT License. All local storage, generation workflows, and customization modules are free to adapt, extend, and deploy.
