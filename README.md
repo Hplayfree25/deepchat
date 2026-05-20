@@ -59,6 +59,16 @@ DeepChat is a feature-rich, local-first conversational workspace built with Next
 
 ---
 
+## Screenshots
+
+### Home Screen
+![DeepChat Home Screen](./docs/screenshots/deepchat-home.png)
+
+### Chat Screen
+![DeepChat Chat Screen](./docs/screenshots/deepchat-chat.png)
+
+---
+
 ## Getting Started (Windows)
 
 DeepChat is pre-configured with a powerful local launcher for Windows. You do not need to deal with manual console setups, dependency tracking, or server management.
